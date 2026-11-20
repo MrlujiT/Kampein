@@ -1,0 +1,11 @@
+{
+  // Cloudflare Workers: until the real app goes live, a deploy from the repo root
+  // serves the static demo (demo/public). Same settings as demo/wrangler.jsonc.
+  "name": "kampein",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": "./demo/public"
+  }
+}
