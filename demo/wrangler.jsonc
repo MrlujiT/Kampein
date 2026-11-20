@@ -1,0 +1,8 @@
+{
+  // Cloudflare Workers config for the Kampein demo (static files only, no backend).
+  "name": "kampein-demo",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./public"
+  }
+}
