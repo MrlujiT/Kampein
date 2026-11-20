@@ -129,6 +129,8 @@
   .up { color:var(--g600); font-weight:700; }
   .src { font-size:11px; color:var(--z500); margin-top:12px; line-height:1.5; }
   @media (max-width: 900px) { .mapwrap { grid-template-columns:1fr; } }
+  .tin { width:72px; text-align:right; border:1px solid var(--z300); border-radius:6px; padding:5px 7px; }
+  .tin:disabled { background:transparent; border-color:transparent; color:inherit; }
   .menu-btn { display:none; }
   @media (max-width: 900px) {
     .g4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -163,6 +165,8 @@
     <div class="camp" id="camp"></div>
     <nav id="nav"></nav>
     <div class="who">
+      <label for="seat">Demo seat</label>
+      <select id="seat" onchange="switchSeat(this.value)" style="margin-bottom:10px"></select>
       <label for="who">Viewing as</label>
       <select id="who" onchange="switchUser(this.value)"></select>
     </div>
@@ -176,94 +180,129 @@
 // ---------------------------------------------------------------------------
 // Sample data
 // ---------------------------------------------------------------------------
-const CAMPAIGN = { name:'Team Amani 2027', candidate:'Amani Wekesa', seat:'MP', constituency:'Kasarani', county:'Nairobi', election:'2027-08-10' };
+// Five demo campaigns, one per elective seat. Registered-voter figures are IEBC's (2022 register).
+const SEATS = {
+  mca:       { seat:'MCA', title:'Member of County Assembly', name:'Team Wanjiru 2027', candidate:'Wanjiru Kamande', where:'Clay City Ward, Kasarani', area:'Polling centre', areas:'Polling centres', county:false, scale:0.25 },
+  mp:        { seat:'MP', title:'Member of the National Assembly', name:'Team Amani 2027', candidate:'Amani Wekesa', where:'Kasarani, Nairobi', area:'Ward', areas:'Wards', county:false, scale:1 },
+  woman_rep: { seat:'Woman Rep', title:'County Woman Member of the National Assembly', name:'Team Halima 2027', candidate:'Halima Abdi', where:'Nairobi County', area:'Constituency', areas:'Constituencies', county:true, scale:3 },
+  senator:   { seat:'Senator', title:'Senator', name:'Team Otieno 2027', candidate:'Otieno Mwamba', where:'Nairobi County', area:'Constituency', areas:'Constituencies', county:true, scale:3.5 },
+  governor:  { seat:'Governor', title:'County Governor', name:'Team Mutiso 2027', candidate:'Joseph Mutiso', where:'Nairobi County', area:'Constituency', areas:'Constituencies', county:true, scale:5 },
+};
+let SEAT = 'mp';
+try { const v = localStorage.getItem('kampein_demo_seat'); if (SEATS[v]) SEAT = v; } catch {}
+let CFG = SEATS[SEAT];
+const CAMPAIGN = { election:'2027-08-10' };
 
 const ROLE_LABEL = { owner:'Candidate', manager:'Campaign manager', finance:'Finance lead', coordinator:'Ward coordinator', agent:'Agent', clerk:'Data clerk' };
 const KIND_LABEL = { door_to_door:'Door to door', meeting:'Meeting', rally:'Rally', recruitment:'Recruitment', other:'Other' };
 const CAT_LABEL = { transport:'Transport', meals:'Meals', materials:'Materials', venues:'Venues', agent_stipends:'Agent stipends', media:'Media' };
+function applySeat() {
+  CFG = SEATS[SEAT];
+  ROLE_LABEL.coordinator = CFG.area === 'Polling centre' ? 'Centre coordinator' : `${CFG.area} coordinator`;
+}
+
+function areaDefs() {
+  if (SEAT === 'mp') return [
+    ['Clay City', 34387, ['Clay City Primary', 'Kasarani Social Hall', 'Mwihoko Grounds', 'Sunton Primary'], 'CLAYCITY'],
+    ['Mwiki', 27837, ['Mwiki Primary', 'Mwiki Secondary', 'Sunrise Academy', 'Mwiki Chief\'s Camp'], 'MWIKI'],
+    ['Kasarani', 27525, ['Kasarani Primary', 'Hunters Primary', 'Seasons Primary', 'Kasarani DO Office'], 'KASARANI'],
+    ['Njiru', 28140, ['Njiru Primary', 'Njiru Secondary', 'Kamulu Grounds', 'Chokaa Primary'], 'NJIRU'],
+    ['Ruai', 37361, ['Ruai Primary', 'Ruai Secondary', 'Kamulu Primary', 'Ruai Social Hall'], 'RUAI'],
+  ];
+  if (SEAT === 'mca') { // Clay City ward (IEBC 2022: 34,387) split across sample polling centres
+    const c = [['Clay City Primary', 8120], ['Kasarani Social Hall', 6850], ['Mwihoko Grounds', 7010], ['Sunton Primary', 6420]];
+    c.push(['Kasarani–Mwiki Road Centre', 34387 - c.reduce((a, x) => a + x[1], 0)]);
+    return c.map(([n, r]) => [n, r, [`${n}, stream 1`, `${n}, stream 2`], null]);
+  }
+  return GEO.consts.slice().sort((a, b) => a.code - b.code)
+    .map(c => [c.name, c.reg, [`${c.name} Primary`, `${c.name} Social Hall`, `${c.name} Secondary`], c.code]);
+}
 
 function seed() {
-  let s = 20270810;
+  let s = 20270810 + Object.keys(SEATS).indexOf(SEAT) * 7919;
   const rnd = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
   const pick = (a) => a[Math.floor(rnd() * a.length)];
-  const id = (p, i) => `${p}${i}`;
+  const k1000 = (x) => Math.max(1000, Math.round(x / 1000) * 1000);
+  const defs = areaDefs();
 
-  const wardDefs = [
-    ['Clay City', 34387, ['Clay City Primary', 'Kasarani Social Hall', 'Mwihoko Grounds', 'Sunton Primary']],
-    ['Mwiki', 27837, ['Mwiki Primary', 'Mwiki Secondary', 'Sunrise Academy', 'Mwiki Chief\'s Camp']],
-    ['Kasarani', 27525, ['Kasarani Primary', 'Hunters Primary', 'Seasons Primary', 'Kasarani DO Office']],
-    ['Njiru', 28140, ['Njiru Primary', 'Njiru Secondary', 'Kamulu Grounds', 'Chokaa Primary']],
-    ['Ruai', 37361, ['Ruai Primary', 'Ruai Secondary', 'Kamulu Primary', 'Ruai Social Hall']],
-  ];
-  const wards = wardDefs.map(([name, reg], i) => ({ id:id('w',i), name, reg, share:0.52 }));
+  const wards = defs.map(([name, reg, , geo], i) => ({ id:'w' + i, name, reg, geo, share:0.55, weekly:Math.max(100, Math.round(reg * 0.035 / 50) * 50) }));
   const stations = [];
-  wardDefs.forEach(([, reg, sts], wi) => sts.forEach((n, si) => {
-    stations.push({ id:id('s', stations.length), ward:wards[wi].id, code:`0${47 + wi}${si + 1}`.padStart(5,'0'), name:n, reg:Math.round(reg / 4 / 100) * 100 + (si * 37) % 300 });
+  defs.forEach(([, , sts], wi) => sts.forEach((n, si) => {
+    stations.push({ id:'s' + stations.length, ward:wards[wi].id, code:String(1000 + stations.length * 7).padStart(5, '0'), name:n, reg:Math.round(450 + rnd() * 250) });
   }));
 
   const first = ['Peter','Mercy','Kevin','Faith','Brian','Joyce','Dennis','Wanjiru','Collins','Aisha','Samuel','Lilian','Victor','Nyambura','Hassan','Esther','Moses','Cynthia','Ian','Akinyi'];
   const last = ['Kamau','Otieno','Mutua','Wanjiku','Kiprop','Njoroge','Achieng','Mwangi','Odhiambo','Chebet','Kariuki','Omondi','Wairimu','Barasa','Nduta'];
   const members = [
-    { id:'m0', name:'Amani Wekesa', role:'owner', ward:null, phone:'0712 000 101' },
+    { id:'m0', name:CFG.candidate, role:'owner', ward:null, phone:'0712 000 101' },
     { id:'m1', name:'Daniel Muriuki', role:'manager', ward:null, phone:'0712 000 102' },
     { id:'m2', name:'Grace Achieng', role:'finance', ward:null, phone:'0712 000 103' },
     { id:'m3', name:'Faith Njeri', role:'clerk', ward:null, phone:'0712 000 104' },
     { id:'m4', name:'Brian Ouma', role:'clerk', ward:null, phone:'0712 000 105' },
   ];
+  const perArea = CFG.county ? 3 : SEAT === 'mca' ? 3 : 4;
   wards.forEach((w, wi) => {
-    members.push({ id:`c${wi}`, name:`${pick(first)} ${pick(last)}`, role:'coordinator', ward:w.id, phone:`0722 ${100 + wi} ${200 + wi}` });
-    for (let k = 0; k < 4; k++) members.push({ id:`a${wi}${k}`, name:`${pick(first)} ${pick(last)}`, role:'agent', ward:w.id, phone:`07${Math.floor(10 + rnd() * 89)} ${Math.floor(100 + rnd() * 899)} ${Math.floor(100 + rnd() * 899)}` });
+    members.push({ id:`c${wi}`, name:wi === 0 ? 'Peter Kamau' : `${pick(first)} ${pick(last)}`, role:'coordinator', ward:w.id, phone:`0722 ${100 + wi} ${200 + wi}` });
+    for (let k = 0; k < perArea; k++) members.push({ id:`a${wi}_${k}`, name:`${pick(first)} ${pick(last)}`, role:'agent', ward:w.id, phone:`07${Math.floor(10 + rnd() * 89)} ${Math.floor(100 + rnd() * 899)} ${Math.floor(100 + rnd() * 899)}` });
   });
-  members[5].name = 'Peter Kamau'; // Clay City coordinator, used in the role switcher
 
   const now = Date.now();
   const activities = [];
-  const effort = [1.1, 0.8, 1.0, 0.55, 0.9]; // wards differ so the leaderboard tells a story
+  const effort = [1.1, 0.8, 1.0, 0.55, 0.9, 0.7, 1.2]; // areas differ so the leaderboard tells a story
   members.filter(m => m.role === 'agent' || m.role === 'coordinator').forEach(m => {
     const wi = wards.findIndex(w => w.id === m.ward);
-    const n = Math.round((6 + rnd() * 10) * effort[wi]);
+    const n = Math.round((6 + rnd() * 10) * effort[wi % effort.length]);
     for (let k = 0; k < n; k++) {
       const kind = pick(['door_to_door','door_to_door','door_to_door','meeting','recruitment','rally']);
       const base = { door_to_door:35, meeting:60, recruitment:8, rally:400 }[kind];
-      activities.push({ id:'x' + activities.length, member:m.id, ward:m.ward, kind, reached:Math.round(base * (0.5 + rnd())), notes:'', at:now - Math.floor(rnd() * 21 * 864e5), source: rnd() < 0.7 ? 'telegram' : 'web' });
+      activities.push({ id:'x' + activities.length, member:m.id, ward:m.ward, kind, reached:base * (0.5 + rnd()), notes:'', at:now - Math.floor(rnd() * 21 * 864e5), source: rnd() < 0.7 ? 'telegram' : 'web' });
     }
   });
+  // Scale outreach so the campaign is roughly a third of the way to its vote target, whatever the seat size
+  const tgt = wards.reduce((a, w) => a + w.reg * 0.65 * w.share, 0);
+  const got = activities.reduce((a, x) => a + x.reached, 0);
+  activities.forEach(x => x.reached = Math.max(1, Math.round(x.reached * 0.33 * tgt / got)));
   activities.sort((a, b) => b.at - a.at);
   activities[0].notes = 'Estate WhatsApp group admins on board';
   activities[1].notes = 'Boda boda stage chairmen meeting';
 
   const budgets = [];
-  wards.forEach((w, wi) => {
-    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'transport', amount:120000 });
-    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'agent_stipends', amount:180000 });
-    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'materials', amount:90000 });
+  wards.forEach((w) => {
+    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'transport', amount:k1000(120000 * CFG.scale / (CFG.county ? 3.4 : 1)) });
+    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'agent_stipends', amount:k1000(180000 * CFG.scale / (CFG.county ? 3.4 : 1)) });
+    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'materials', amount:k1000(90000 * CFG.scale / (CFG.county ? 3.4 : 1)) });
   });
-  budgets.push({ id:'b' + budgets.length, ward:null, cat:'media', amount:600000 });
-  budgets.push({ id:'b' + budgets.length, ward:null, cat:'venues', amount:350000 });
+  budgets.push({ id:'b' + budgets.length, ward:null, cat:'media', amount:k1000(600000 * CFG.scale) });
+  budgets.push({ id:'b' + budgets.length, ward:null, cat:'venues', amount:k1000(350000 * CFG.scale) });
 
   const payees = members.filter(m => m.role === 'agent' || m.role === 'coordinator').map(m => ({ id:'p' + m.id, kind:'member', member:m.id, name:m.name }));
   payees.push({ id:'pv1', kind:'vendor', member:null, name:'Printex Graphics Ltd' });
-  payees.push({ id:'pv2', kind:'vendor', member:null, name:'Kasarani PA Hire' });
-  payees.push({ id:'pv3', kind:'vendor', member:null, name:'Ruai Matatu Sacco' });
+  payees.push({ id:'pv2', kind:'vendor', member:null, name:'Nairobi PA Hire' });
+  payees.push({ id:'pv3', kind:'vendor', member:null, name:'City Matatu Sacco' });
 
   const disb = [];
   const add = (o) => disb.push({ id:'d' + (disb.length + 1), at: now - (12 - disb.length) * 864e5, ...o });
   const bw = (wi, cat) => budgets.find(b => b.ward === wards[wi].id && b.cat === cat).id;
-  add({ budget:bw(0,'agent_stipends'), payee:'pa00', amount:4500, purpose:'Weekly stipend, Clay City agent', status:'paid', by:'c0', decided:'m2', mpesa:'SKL4H2P9QA' });
-  add({ budget:bw(1,'transport'), payee:'pv3', amount:18000, purpose:'Matatu hire for Mwiki town hall', status:'paid', by:'c1', decided:'m2', mpesa:'SKM7J1D3RT' });
-  add({ budget:budgets.find(b => b.cat === 'media').id, payee:'pv1', amount:85000, purpose:'Posters and flyers, batch 1', status:'paid', by:'m1', decided:'m2', mpesa:'SKN2C8W5LB' });
-  add({ budget:bw(3,'materials'), payee:'pv1', amount:24000, purpose:'T-shirts for Njiru agents', status:'approved', by:'c3', decided:'m2' });
-  add({ budget:bw(4,'transport'), payee:'pc4', amount:6000, purpose:'Fuel for Ruai door-to-door', status:'rejected', by:'c4', decided:'m2' });
-  add({ budget:budgets.find(b => b.cat === 'venues').id, payee:'pv2', amount:45000, purpose:'PA system, Kasarani rally', status:'requested', by:'m1' });
-  add({ budget:bw(0,'transport'), payee:'pa01', amount:3500, purpose:'Fare for Clay City agents, Saturday', status:'requested', by:'c0' });
-  add({ budget:bw(2,'agent_stipends'), payee:'pa20', amount:4500, purpose:'Weekly stipend, Kasarani agent', status:'requested', by:'c2' });
+  const A = (i) => wards[i].name;
+  const sc = (x) => Math.round(x * Math.max(0.4, Math.min(CFG.scale, 3)) / 500) * 500;
+  add({ budget:bw(0,'agent_stipends'), payee:'pa0_0', amount:4500, purpose:`Weekly stipend, ${A(0)} agent`, status:'paid', by:'c0', decided:'m2', mpesa:'SKL4H2P9QA' });
+  add({ budget:bw(1,'transport'), payee:'pv3', amount:sc(18000), purpose:`Matatu hire for ${A(1)} town hall`, status:'paid', by:'c1', decided:'m2', mpesa:'SKM7J1D3RT' });
+  add({ budget:budgets.find(b => b.cat === 'media').id, payee:'pv1', amount:sc(85000), purpose:'Posters and flyers, batch 1', status:'paid', by:'m1', decided:'m2', mpesa:'SKN2C8W5LB' });
+  add({ budget:bw(3,'materials'), payee:'pv1', amount:sc(24000), purpose:`T-shirts for ${A(3)} agents`, status:'approved', by:'c3', decided:'m2' });
+  add({ budget:bw(4,'transport'), payee:'pc4', amount:6000, purpose:`Fuel for ${A(4)} door-to-door`, status:'rejected', by:'c4', decided:'m2' });
+  add({ budget:budgets.find(b => b.cat === 'venues').id, payee:'pv2', amount:sc(45000), purpose:'PA system for the main rally', status:'requested', by:'m1' });
+  add({ budget:bw(0,'transport'), payee:'pa0_1', amount:3500, purpose:`Fare for ${A(0)} agents, Saturday`, status:'requested', by:'c0' });
+  add({ budget:bw(2,'agent_stipends'), payee:'pa2_0', amount:4500, purpose:`Weekly stipend, ${A(2)} agent`, status:'requested', by:'c2' });
 
-  // Election day
+  // Election day: Form 34A per polling station, in a shuffled order so every area has some of each status
   const cands = [
-    { id:'k1', name:'Amani Wekesa', party:'Independent', ours:true },
+    { id:'k1', name:CFG.candidate, party:'Independent', ours:true },
     { id:'k2', name:'Candidate B', party:'Party B', ours:false },
     { id:'k3', name:'Candidate C', party:'Party C', ours:false },
   ];
+  const N = stations.length;
+  const order = stations.map((_, i) => [rnd(), i]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
+  const rank = []; order.forEach((i, r) => rank[i] = r);
   const forms = [];
   stations.forEach((st, i) => {
     const turnout = Math.round(st.reg * (0.55 + rnd() * 0.15));
@@ -271,32 +310,47 @@ function seed() {
     const rej = Math.floor(rnd() * 12);
     const c = Math.max(0, turnout - a - b - rej);
     const truth = { k1:a, k2:b, k3:c };
+    const r = rank[i];
     let status, entries = [];
-    if (i < 11) { status = 'confirmed'; entries = [{ by:'m3', votes:{...truth}, rej }, { by:'m4', votes:{...truth}, rej }]; }
-    else if (i === 11) { status = 'disputed'; entries = [{ by:'m3', votes:{...truth}, rej }, { by:'m4', votes:{ ...truth, k1: truth.k1 - 100 }, rej }]; }
-    else if (i < 15) { status = 'awaiting'; entries = [{ by:'m3', votes:{...truth}, rej }]; }
-    else if (i < 18) { status = 'awaiting'; entries = []; }
+    if (r < Math.round(N * 0.55)) { status = 'confirmed'; entries = [{ by:'m3', votes:{...truth}, rej }, { by:'m4', votes:{...truth}, rej }]; }
+    else if (r === Math.round(N * 0.55)) { status = 'disputed'; entries = [{ by:'m3', votes:{...truth}, rej }, { by:'m4', votes:{ ...truth, k1: truth.k1 - 100 }, rej }]; }
+    else if (r < Math.round(N * 0.72)) { status = 'awaiting'; entries = [{ by:'m3', votes:{...truth}, rej }]; }
+    else if (r < Math.round(N * 0.88)) { status = 'awaiting'; entries = []; }
     else { status = 'not_uploaded'; }
-    forms.push({ id:'f' + i, station:st.id, truth, rej, status, entries, final: status === 'confirmed' ? { votes:{...truth}, rej } : null, uploadedBy: status === 'not_uploaded' ? null : `a${Math.floor(i / 4)}${i % 4}` });
+    const wi = wards.findIndex(w => w.id === st.ward);
+    forms.push({ id:'f' + i, station:st.id, truth, rej, status, entries, final: status === 'confirmed' ? { votes:{...truth}, rej } : null, uploadedBy: status === 'not_uploaded' ? null : `a${wi}_0` });
   });
 
   const audit = [
-    { at: now - 3 * 864e5, who:'Grace Achieng', what:'Marked disbursement d3 as paid (M-Pesa SKN2C8W5LB)' },
-    { at: now - 2 * 864e5, who:'Grace Achieng', what:'Rejected disbursement d5: fuel already covered by Ruai Sacco hire' },
-    { at: now - 864e5, who:'Grace Achieng', what:'Approved disbursement d4 (KES 24,000)' },
+    { at: now - 3 * 864e5, who:'Grace Achieng', what:'Marked disbursement D3 as paid (M-Pesa SKN2C8W5LB)' },
+    { at: now - 2 * 864e5, who:'Grace Achieng', what:`Rejected disbursement D5: fuel already covered by the Sacco hire` },
+    { at: now - 864e5, who:'Grace Achieng', what:`Approved disbursement D4 (${'KES ' + new Intl.NumberFormat('en-KE').format(sc(24000))})` },
   ];
 
-  return { me:'m0', wards, stations, members, activities, budgets, payees, disb, cands, forms, audit };
+  return { me:'m0', turnout:0.65, defaultShare:0.55, agentGoal:150, wards, stations, members, activities, budgets, payees, disb, cands, forms, audit };
 }
 
 // ---------------------------------------------------------------------------
-// State
+// State (one saved copy per demo seat)
 // ---------------------------------------------------------------------------
-const KEY = 'kampein_demo_v2';
+const keyFor = (seat) => 'kampein_demo_v4_' + seat;
 let S;
-try { S = JSON.parse(localStorage.getItem(KEY)) || seed(); } catch { S = seed(); }
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} };
-function resetDemo() { S = seed(); save(); render(); toast('Demo reset to sample data'); }
+function load() {
+  applySeat();
+  try { S = JSON.parse(localStorage.getItem(keyFor(SEAT))) || seed(); } catch { S = seed(); }
+}
+load();
+const save = () => { try { localStorage.setItem(keyFor(SEAT), JSON.stringify(S)); } catch {} };
+function resetDemo() { S = seed(); save(); M.level = null; M.sel = null; render(); toast('Demo reset to sample data'); }
+function switchSeat(k) {
+  save(); SEAT = k;
+  try { localStorage.setItem('kampein_demo_seat', k); } catch {}
+  load(); M.level = null; M.sel = null;
+  const ok = allowedPages();
+  if (!ok.includes(location.hash.slice(1))) location.hash = ok[0];
+  render();
+  toast(`Now showing the ${CFG.seat} demo: ${CFG.name}, ${CFG.where}`);
+}
 
 const me = () => S.members.find(m => m.id === S.me);
 const member = (id) => S.members.find(m => m.id === id);
@@ -309,7 +363,8 @@ const kes = (n) => 'KES ' + nf.format(n || 0);
 const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 100)) : 0;
 const when = (t) => new Date(t).toLocaleString('en-KE', { timeZone:'Africa/Nairobi', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-const target = (w) => Math.round(w.reg * w.share);
+// Votes we need in a ward = IEBC registered voters × expected turnout × our target share of votes cast
+const target = (w) => Math.round(w.reg * S.turnout * w.share);
 const myWard = () => me().ward;
 const visibleWards = () => me().role === 'coordinator' ? S.wards.filter(w => w.id === myWard()) : S.wards;
 function log(what) { S.audit.unshift({ at:Date.now(), who:me().name, what }); }
@@ -325,11 +380,11 @@ function fail(msg) { toast(msg, true); return false; }
 // ---------------------------------------------------------------------------
 // Navigation and roles
 // ---------------------------------------------------------------------------
-const USERS = [
-  ['m0', 'Amani Wekesa — Candidate'],
+const USERS = () => [
+  ['m0', `${CFG.candidate} — Candidate`],
   ['m1', 'Daniel Muriuki — Campaign manager'],
   ['m2', 'Grace Achieng — Finance lead'],
-  ['c0', 'Peter Kamau — Coordinator, Clay City'],
+  ['c0', `Peter Kamau — Coordinator, ${S.wards[0].name}`],
   ['m3', 'Faith Njeri — Data clerk A'],
   ['m4', 'Brian Ouma — Data clerk B'],
 ];
@@ -337,6 +392,7 @@ const PAGES = {
   overview:   { label:'Overview',          roles:['owner','manager','finance','coordinator'] },
   map:        { label:'Map',               roles:['owner','manager','finance','coordinator'] },
   wards:      { label:'Wards & stations',  roles:['owner','manager','finance','coordinator'] },
+  targets:    { label:'Targets',           roles:['owner','manager','finance','coordinator'] },
   team:       { label:'Team',              roles:['owner','manager','finance','coordinator'] },
   activity:   { label:'Field activity',    roles:['owner','manager','finance','coordinator'] },
   leaderboard:{ label:'Leaderboard',       roles:['owner','manager','finance','coordinator'] },
@@ -377,10 +433,11 @@ function badge(p) {
 }
 
 function render() {
-  document.getElementById('camp').innerHTML = `${esc(CAMPAIGN.name)}<small>${CAMPAIGN.seat} · ${CAMPAIGN.constituency}, ${CAMPAIGN.county}</small>`;
-  document.getElementById('who').innerHTML = USERS.map(([id, l]) => `<option value="${id}" ${id === S.me ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  document.getElementById('camp').innerHTML = `${esc(CFG.name)}<small>${esc(CFG.seat)} · ${esc(CFG.where)}</small>`;
+  document.getElementById('seat').innerHTML = Object.entries(SEATS).map(([k, c]) => `<option value="${k}" ${k === SEAT ? 'selected' : ''}>${esc(c.seat)} — ${esc(c.where)}</option>`).join('');
+  document.getElementById('who').innerHTML = USERS().map(([id, l]) => `<option value="${id}" ${id === S.me ? 'selected' : ''}>${esc(l)}</option>`).join('');
   const page = current();
-  document.getElementById('nav').innerHTML = allowedPages().map(p => `<a href="#${p}" class="${p === page ? 'on' : ''}">${PAGES[p].label}${badge(p)}</a>`).join('');
+  document.getElementById('nav').innerHTML = allowedPages().map(p => `<a href="#${p}" class="${p === page ? 'on' : ''}">${p === 'wards' ? CFG.areas + ' & stations' : PAGES[p].label}${badge(p)}</a>`).join('');
   const y = window.scrollY, same = render.last === page;
   document.getElementById('main').innerHTML = VIEWS[page]();
   window.scrollTo(0, same ? y : 0);
@@ -411,17 +468,17 @@ const VIEWS = {
     const days = Math.ceil((new Date(CAMPAIGN.election).getTime() - Date.now()) / 864e5);
     const spent = S.disb.filter(d => d.status === 'paid').reduce((s, d) => s + d.amount, 0);
     const budget = S.budgets.filter(b => me().role !== 'coordinator' || b.ward === myWard()).reduce((s, b) => s + b.amount, 0);
-    const greet = me().role === 'owner' ? 'Karibu, Amani' : `Karibu, ${me().name.split(' ')[0]}`;
+    const greet = `Karibu, ${me().name.split(' ')[0]}`;
     return header(greet, `${num(days)} days to the general election${me().role === 'coordinator' ? ` · your ward: ${ward(myWard()).name}` : ''}`) + `
       <div class="grid g4">
         ${stat('Registered voters', num(reg), `${ws.length} ward${ws.length > 1 ? 's' : ''} · ${S.stations.filter(s => ws.some(w => w.id === s.ward)).length} polling stations`)}
-        ${stat('Vote target', num(tgt), '52% of registered voters')}
+        ${stat('Vote target', num(tgt), `${Math.round(S.turnout * 100)}% turnout × our vote share · <a href="#targets" style="color:var(--g600)">Set targets</a>`)}
         ${stat('People reached', num(reached), `${pct(reached, tgt)}% of target`)}
         ${stat('Team', num(team.length), `${num(week)} activities this week`)}
       </div>
       <div class="grid g2" style="margin-top:14px">
         <div class="card">
-          <h2 style="margin-top:0">Wards against target</h2>
+          <h2 style="margin-top:0">${CFG.areas} against target</h2>
           ${ws.map(w => { const st = wardStats(w); return progressRow(w.name, `${num(st.reached)} / ${num(target(w))} · ${st.week} this week`, pct(st.reached, target(w))); }).join('')}
         </div>
         <div class="card">
@@ -439,16 +496,16 @@ const VIEWS = {
 
   wards() {
     const canEdit = ['owner','manager'].includes(me().role);
-    return header('Wards & polling stations', 'Each ward\'s target = IEBC registered voters × your target share.') +
+    return header(`${CFG.areas} & polling stations`, CFG.area === 'Polling centre' ? `Clay City ward has ${num(34387)} registered voters (IEBC 2022), split here across sample polling centres. Vote targets are set on the Targets page.` : `Registered voters per ${CFG.area.toLowerCase()} from IEBC (2022). Vote targets are set on the Targets page.`) +
       (canEdit ? `<form class="card inline" style="grid-template-columns:2fr 1fr 1fr auto;margin-bottom:16px" onsubmit="return addWard(this)">
-        <div class="f wide"><label>New ward</label><input name="name" required placeholder="Ward name"></div>
+        <div class="f wide"><label>New ${CFG.area.toLowerCase()}</label><input name="name" required placeholder="${CFG.area} name"></div>
         <div class="f"><label>Registered voters</label><input name="reg" type="number" min="0" required></div>
-        <div class="f"><label>Target share %</label><input name="share" type="number" min="0" max="100" value="52"></div>
-        <button class="btn">Add ward</button></form>` : '') +
+        <div class="f"><label>Our vote share %</label><input name="share" type="number" min="0" max="100" value="${Math.round(S.defaultShare * 100)}"></div>
+        <button class="btn">Add ${CFG.area.toLowerCase()}</button></form>` : '') +
       visibleWards().map(w => {
         const sts = S.stations.filter(s => s.ward === w.id);
         return `<div class="card" style="margin-bottom:12px">
-          <div class="row" style="font-size:14px"><b>${esc(w.name)}</b><span class="muted">${num(w.reg)} voters · target ${num(target(w))} (${Math.round(w.share * 100)}%)</span></div>
+          <div class="row" style="font-size:14px"><b>${esc(w.name)}</b><span class="muted">${num(w.reg)} voters · target ${num(target(w))} votes</span></div>
           ${sts.length ? `<table style="margin-top:8px"><thead><tr><th>Code</th><th>Polling station</th><th class="r">Registered</th><th>Agent</th></tr></thead><tbody>
           ${sts.map((s, i) => { const ag = S.members.filter(m => m.role === 'agent' && m.ward === w.id)[i]; return `<tr><td class="muted">${s.code}</td><td>${esc(s.name)}</td><td class="r">${num(s.reg)}</td><td>${ag ? esc(ag.name) : '<span class="muted">Unassigned</span>'}</td></tr>`; }).join('')}
           </tbody></table>` : '<p class="muted">No polling stations yet.</p>'}
@@ -466,9 +523,9 @@ const VIEWS = {
         <div class="f wide"><label>Full name</label><input name="name" required></div>
         <div class="f"><label>Phone</label><input name="phone" placeholder="07XX XXX XXX"></div>
         <div class="f"><label>Role</label><select name="role">${addable.map(r => `<option value="${r}">${ROLE_LABEL[r]}</option>`).join('')}</select></div>
-        <div class="f"><label>Ward</label><select name="ward" ${me().role === 'coordinator' ? 'disabled' : ''}><option value="">Whole campaign</option>${S.wards.map(w => `<option value="${w.id}" ${w.id === myWard() ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="f"><label>${CFG.area}</label><select name="ward" ${me().role === 'coordinator' ? 'disabled' : ''}><option value="">Whole campaign</option>${S.wards.map(w => `<option value="${w.id}" ${w.id === myWard() ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select></div>
         <button class="btn">Add</button></form>` : '') +
-      `<div class="card tablecard"><table><thead><tr><th>Name</th><th>Role</th><th>Ward</th><th>Phone</th><th>Reports via</th></tr></thead><tbody>
+      `<div class="card tablecard"><table><thead><tr><th>Name</th><th>Role</th><th>${CFG.area}</th><th>Phone</th><th>Reports via</th></tr></thead><tbody>
       ${list.map(m => `<tr><td><b>${esc(m.name)}</b></td><td>${ROLE_LABEL[m.role]}</td><td>${m.ward ? esc(ward(m.ward).name) : '<span class="muted">Whole campaign</span>'}</td><td class="muted">${esc(m.phone || '—')}</td><td class="muted">${m.role === 'agent' ? 'Telegram' : 'Web + Telegram'}</td></tr>`).join('')}
       </tbody></table></div>`;
   },
@@ -484,8 +541,8 @@ const VIEWS = {
         <div class="f"><label>People reached</label><input name="reached" type="number" min="0" value="30"></div>
         <div class="f wide"><label>Notes</label><input name="notes" placeholder="Optional"></div>
         <button class="btn">Log</button></form>
-      <div class="card tablecard"><table class="stack"><thead><tr><th>When</th><th>Who</th><th>Ward</th><th>Activity</th><th class="r">Reached</th><th>Via</th><th>Notes</th></tr></thead><tbody>
-      ${acts.map(a => `<tr><td data-label="When" class="muted" style="white-space:nowrap">${when(a.at)}</td><td data-label="Who">${esc(member(a.member).name)}</td><td data-label="Ward">${esc(ward(a.ward).name)}</td><td data-label="Activity">${KIND_LABEL[a.kind]}</td><td data-label="Reached" class="r">${num(a.reached)}</td><td data-label="Via" class="muted">${a.source === 'telegram' ? 'Telegram' : 'Web'}</td>${a.notes ? `<td data-label="Notes" class="muted">${esc(a.notes)}</td>` : '<td class="muted" style="display:none"></td>'}</tr>`).join('')}
+      <div class="card tablecard"><table class="stack"><thead><tr><th>When</th><th>Who</th><th>${CFG.area}</th><th>Activity</th><th class="r">Reached</th><th>Via</th><th>Notes</th></tr></thead><tbody>
+      ${acts.map(a => `<tr><td data-label="When" class="muted" style="white-space:nowrap">${when(a.at)}</td><td data-label="Who">${esc(member(a.member).name)}</td><td data-label="${CFG.area}">${esc(ward(a.ward).name)}</td><td data-label="Activity">${KIND_LABEL[a.kind]}</td><td data-label="Reached" class="r">${num(a.reached)}</td><td data-label="Via" class="muted">${a.source === 'telegram' ? 'Telegram' : 'Web'}</td>${a.notes ? `<td data-label="Notes" class="muted">${esc(a.notes)}</td>` : '<td class="muted" style="display:none"></td>'}</tr>`).join('')}
       </tbody></table></div>`;
   },
 
@@ -494,15 +551,15 @@ const VIEWS = {
     const wards = S.wards.map(w => ({ w, st:wardStats(w) })).map(x => ({ ...x, score:pct(x.st.reached, target(x.w)) })).sort((a, b) => b.score - a.score);
     const people = S.members.filter(m => m.role === 'agent' || m.role === 'coordinator').map(m => {
       const acts = S.activities.filter(a => a.member === m.id);
-      return { m, reached:acts.reduce((s, a) => s + a.reached, 0), week:acts.filter(a => a.at > week).length };
+      return { m, reached:acts.reduce((s, a) => s + a.reached, 0), week:acts.filter(a => a.at > week).reduce((s, a) => s + a.reached, 0) };
     }).sort((a, b) => b.reached - a.reached).slice(0, 15);
-    return header('Leaderboard', 'Wards ranked by people reached against target. Updated as reports come in.') + `
+    return header('Leaderboard', `${CFG.areas} ranked by people reached against target. Updated as reports come in.`) + `
       <div class="grid g2">
-        <div class="card"><h2 style="margin-top:0">Wards</h2>
+        <div class="card"><h2 style="margin-top:0">${CFG.areas}</h2>
           ${wards.map((x, i) => progressRow(`<span class="rank">${i + 1}</span>${esc(x.w.name)}${x.w.id === myWard() ? ' <span class="pill p-ok">You</span>' : ''}`, `${x.score}% of target`, x.score)).join('')}
         </div>
-        <div class="card tablecard"><table><thead><tr><th>#</th><th>Name</th><th>Ward</th><th class="r">Reached</th><th class="r">This week</th></tr></thead><tbody>
-          ${people.map((p, i) => `<tr><td class="muted">${i + 1}</td><td><b>${esc(p.m.name)}</b><div class="muted" style="font-size:12px">${ROLE_LABEL[p.m.role]}</div></td><td>${esc(ward(p.m.ward).name)}</td><td class="r">${num(p.reached)}</td><td class="r">${p.week}</td></tr>`).join('')}
+        <div class="card tablecard"><table><thead><tr><th>#</th><th>Name</th><th>${CFG.area}</th><th class="r">Reached</th><th>This week vs goal (${num(S.agentGoal)})</th></tr></thead><tbody>
+          ${people.map((p, i) => `<tr><td class="muted">${i + 1}</td><td><b>${esc(p.m.name)}</b><div class="muted" style="font-size:12px">${ROLE_LABEL[p.m.role]}</div></td><td>${esc(ward(p.m.ward).name)}</td><td class="r">${num(p.reached)}</td><td style="min-width:120px"><div class="row" style="margin-bottom:3px"><span>${num(p.week)}</span><span class="${p.week >= S.agentGoal ? 'up' : 'muted'}">${pct(p.week, S.agentGoal)}%</span></div><div class="bar"><i style="width:${pct(p.week, S.agentGoal)}%"></i></div></td></tr>`).join('')}
         </tbody></table></div>
       </div>`;
   },
@@ -581,7 +638,7 @@ const VIEWS = {
       </div>
       ${disputed.length && canResolve ? `<h2>Needs your decision</h2>${disputed.map(f => disputeCard(f)).join('')}` : ''}
       <h2>Polling stations</h2>
-      <div class="card tablecard"><table><thead><tr><th>Station</th><th>Ward</th><th>Status</th><th class="r">Entries</th>${S.cands.map(c => `<th class="r">${esc(c.name.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>
+      <div class="card tablecard"><table><thead><tr><th>Station</th><th>${CFG.area}</th><th>Status</th><th class="r">Entries</th>${S.cands.map(c => `<th class="r">${esc(c.name.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>
       ${fs.map(f => { const st = station(f.station); return `<tr><td>${esc(st.name)}</td><td>${esc(ward(st.ward).name)}</td><td>${statusPill[f.status]}</td><td class="r muted">${f.entries.length}/2</td>${S.cands.map(c => `<td class="r">${f.final ? num(f.final.votes[c.id]) : '<span class="muted">—</span>'}</td>`).join('')}</tr>`; }).join('')}
       </tbody></table></div>
       <div class="rule">Each form is typed in by two different clerks. Matching entries confirm the station; differences go to the campaign manager with the photo.</div>`;
@@ -598,12 +655,13 @@ const VIEWS = {
 
 // ---------------------------------------------------------------------------
 // Map: Kenya counties -> Nairobi constituencies -> Kasarani wards
+// County seats work at constituency level; MP at ward level; MCA inside Clay City ward.
 // ---------------------------------------------------------------------------
-const WARD_GEO = { w0:'CLAYCITY', w1:'MWIKI', w2:'KASARANI', w3:'NJIRU', w4:'RUAI' };
-const GEO_WARD = Object.fromEntries(Object.entries(WARD_GEO).map(([a, b]) => [b, a]));
 const REG22 = GEO.counties.reduce((a, c) => a + c.reg, 0);
 const NEW26 = GEO.counties.reduce((a, c) => a + c.new26, 0);
 let M = { level:null, sel:null, layer:'reg' };
+const opLevel = () => CFG.county ? 'nairobi' : 'kasarani';
+const areaByGeo = (k) => S.wards.find(w => w.geo != null && String(w.geo) === String(k));
 
 function mix(a, b, t) {
   const h = (x) => [1, 3, 5].map(i => parseInt(x.slice(i, i + 2), 16));
@@ -615,26 +673,39 @@ function ramp(t) { // dark green -> mint -> sun
   return t < 0.6 ? mix('#1d5a37', '#5fd394', t / 0.6) : mix('#5fd394', '#f7e98e', (t - 0.6) / 0.4);
 }
 const RAMP_CSS = 'linear-gradient(90deg,#1d5a37,#5fd394 60%,#f7e98e)';
+const GREY = '#2c4a39';
 
 function countyVal(c) { return M.layer === 'reg' ? c.reg : M.layer === 'new' ? c.new26 : c.new26 / c.reg; }
 function scaled(vals) { // colour by rank so one giant (Nairobi) doesn't flatten everything else
   const sorted = vals.slice().sort((a, b) => a - b);
   return (v) => sorted.indexOf(v) / ((sorted.length - 1) || 1);
 }
-function wardInfo(geoKey) {
-  const w = ward(GEO_WARD[geoKey]);
+function areaInfo(w) {
   const st = wardStats(w);
   return { w, st, p:pct(st.reached, target(w)),
     agents:S.members.filter(m => m.ward === w.id && m.role === 'agent').length,
     stations:S.stations.filter(x => x.ward === w.id).length };
 }
+function campaignP() {
+  const t = S.wards.reduce((a, w) => a + target(w), 0), r = S.wards.reduce((a, w) => a + wardStats(w).reached, 0);
+  return pct(r, t);
+}
 const fmtPct = (x, d = 1) => (x * 100).toFixed(d) + '%';
+const parseKey = (k) => M.level === 'kasarani' ? k : +k;
 
 function mapGo(level, sel) { M.level = level; M.sel = sel ?? null; render(); }
 function mapLayer(l) { M.layer = l; render(); }
+function rings(c, label, dy) {
+  return `<circle class="ring" cx="${c[0]}" cy="${c[1]}" r="6"/><circle class="ring b" cx="${c[0]}" cy="${c[1]}" r="6"/>` +
+    (label ? `<text class="tag" x="${c[0]}" y="${c[1] + (dy || -16)}" text-anchor="middle">${label}</text>` : '');
+}
+function dotsFor(geoKey, n) {
+  return (GEO.map.kasarani.pts[geoKey] || []).slice(0, n).map((p, i) => `<circle class="dot" cx="${p[0]}" cy="${p[1]}" r="2.6" style="animation-delay:${((i * 0.37) % 2.6).toFixed(2)}s"/>`).join('');
+}
 
 function mapSVG() {
   const L = M.level, g = GEO.map[L];
+  const week = Date.now() - 7 * 864e5;
   let paths = '', extra = '';
   if (L === 'kenya') {
     const f = scaled(GEO.counties.map(countyVal));
@@ -643,33 +714,45 @@ function mapSVG() {
       return `<path class="rg ${it.key === 47 ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(f(countyVal(c)))}"><title>${esc(c.name)}</title></path>`;
     }).join('');
     const nb = g.items.find(i => i.key === 47).c;
-    extra = `<circle class="ring" cx="${nb[0]}" cy="${nb[1]}" r="6"/><circle class="ring b" cx="${nb[0]}" cy="${nb[1]}" r="6"/><circle class="core" cx="${nb[0]}" cy="${nb[1]}" r="3.5"/>
-      <text class="tag" x="${nb[0] + 16}" y="${nb[1] + 4}">YOUR CAMPAIGN</text>`;
+    extra = rings(nb) + `<circle class="core" cx="${nb[0]}" cy="${nb[1]}" r="3.5"/><text class="tag" x="${nb[0] + 16}" y="${nb[1] + 4}">YOUR CAMPAIGN</text>`;
+  } else if (L === 'nairobi' && CFG.county) {
+    paths = g.items.map(it => {
+      const w = areaByGeo(it.key), info = areaInfo(w);
+      const mine = me().role === 'coordinator' && w.id === myWard();
+      return `<path class="rg ${mine ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(info.p / 100)}"><title>${esc(w.name)}: ${info.p}% of target</title></path>`;
+    }).join('');
+    extra = g.items.filter(it => it.key === M.sel).map(it => { const w = areaByGeo(it.key); return `<text class="lbl" x="${it.c[0]}" y="${it.c[1] - 4}" text-anchor="middle">${esc(w.name)}</text><text class="lbl2" x="${it.c[0]}" y="${it.c[1] + 13}" text-anchor="middle">${areaInfo(w).p}% of target</text>`; }).join('');
   } else if (L === 'nairobi') {
     const f = scaled(GEO.consts.map(c => c.reg));
     paths = g.items.map(it => {
       const c = GEO.consts.find(x => x.code === it.key);
       return `<path class="rg ${it.key === 280 ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(f(c.reg))}"><title>${esc(c.name)}</title></path>`;
     }).join('');
-    const k = g.items.find(i => i.key === 280).c;
-    extra = `<circle class="ring" cx="${k[0]}" cy="${k[1]}" r="6"/><circle class="ring b" cx="${k[0]}" cy="${k[1]}" r="6"/>
-      <text class="tag" x="${k[0]}" y="${k[1] - 16}" text-anchor="middle">KASARANI</text>`;
+    extra = rings(g.items.find(i => i.key === 280).c, 'KASARANI');
+  } else if (SEAT === 'mca') {
+    const p = campaignP();
+    paths = g.items.map(it => {
+      const ours = it.key === 'CLAYCITY';
+      return `<path class="rg ${ours ? 'camp' : ''}" data-k="${it.key}" d="${it.d}" fill="${ours ? ramp(p / 100) : GREY}" style="${ours ? '' : 'opacity:.55;cursor:default'}"><title>${ours ? 'Clay City' : 'Outside the ward'}</title></path>`;
+    }).join('');
+    const n = Math.min(40, S.activities.filter(a => a.at > week).length);
+    const cc = g.items.find(i => i.key === 'CLAYCITY').c;
+    extra = dotsFor('CLAYCITY', n) + g.items.filter(it => it.key !== 'CLAYCITY').map(it => `<text class="lbl" style="opacity:.45;font-size:12px" x="${it.c[0]}" y="${it.c[1]}" text-anchor="middle">${esc(it.key === 'CLAYCITY' ? '' : it.key[0] + it.key.slice(1).toLowerCase())}</text>`).join('')
+      + `<text class="lbl" x="${cc[0] + 10}" y="${cc[1] - 34}" text-anchor="middle">Clay City</text><text class="lbl2" x="${cc[0] + 10}" y="${cc[1] - 17}" text-anchor="middle">${p}% of target</text>`;
   } else {
     paths = g.items.map(it => {
-      const wi = wardInfo(it.key);
-      const mine = me().role === 'coordinator' && wi.w.id === myWard();
-      return `<path class="rg ${mine ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(wi.p / 40)}"><title>${esc(wi.w.name)}</title></path>`;
+      const w = areaByGeo(it.key), info = areaInfo(w);
+      const mine = me().role === 'coordinator' && w.id === myWard();
+      return `<path class="rg ${mine ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(info.p / 100)}"><title>${esc(w.name)}</title></path>`;
     }).join('');
-    const week = Date.now() - 7 * 864e5;
     extra = g.items.map(it => {
-      const w = ward(GEO_WARD[it.key]);
-      const n = Math.min(40, S.activities.filter(a => a.ward === w.id && a.at > week).length * 2);
-      return (g.pts[it.key] || []).slice(0, n).map((p, i) => `<circle class="dot" cx="${p[0]}" cy="${p[1]}" r="2.6" style="animation-delay:${((i * 0.37) % 2.6).toFixed(2)}s"/>`).join('');
+      const w = areaByGeo(it.key);
+      return dotsFor(it.key, Math.min(40, S.activities.filter(a => a.ward === w.id && a.at > week).length * 2));
     }).join('') + g.items.map(it => {
-      const wi = wardInfo(it.key);
+      const info = areaInfo(areaByGeo(it.key));
       const [dx, dy] = { CLAYCITY:[10, -30], KASARANI:[-20, 30] }[it.key] || [0, 0];
       const x = it.c[0] + dx, y = it.c[1] + dy;
-      return `<text class="lbl" x="${x}" y="${y - 4}" text-anchor="middle">${esc(wi.w.name)}</text><text class="lbl2" x="${x}" y="${y + 13}" text-anchor="middle">${wi.p}% of target</text>`;
+      return `<text class="lbl" x="${x}" y="${y - 4}" text-anchor="middle">${esc(info.w.name)}</text><text class="lbl2" x="${x}" y="${y + 13}" text-anchor="middle">${info.p}% of target</text>`;
     }).join('');
   }
   return `<svg class="kmap" viewBox="0 0 ${g.w} ${g.h}" onclick="mapClick(event)" onmouseover="mapHover(event)"><g class="lvl">${paths}${extra}</g></svg>`;
@@ -677,33 +760,45 @@ function mapSVG() {
 
 function mapHover(e) {
   if (!matchMedia('(hover: hover)').matches) return;
-  const k = e.target.dataset?.k; if (!k) return;
-  const key = M.level === 'kasarani' ? k : +k;
+  const k = e.target.dataset?.k; if (!k || (SEAT === 'mca' && M.level === 'kasarani')) return;
+  const key = parseKey(k);
   if (key === M.sel) return;
   M.sel = key; mapRefresh();
 }
 function mapClick(e) {
   const k = e.target.dataset?.k; if (!k) return;
-  const key = M.level === 'kasarani' ? k : +k;
-  if (M.level === 'kenya' && key === 47 && M.sel === 47) return mapGo('nairobi', 280);
-  if (M.level === 'nairobi' && key === 280 && M.sel === 280) return mapGo('kasarani');
+  const key = parseKey(k);
+  if (M.level === 'kenya' && key === 47 && M.sel === 47) return mapGo('nairobi', CFG.county ? null : 280);
+  if (M.level === 'nairobi' && !CFG.county && key === 280 && M.sel === 280) return mapGo('kasarani');
+  if (SEAT === 'mca' && M.level === 'kasarani') { M.sel = null; return mapRefresh(); }
   M.sel = key; mapRefresh();
 }
 function mapRefresh() {
+  if (M.level === 'nairobi' && CFG.county) return render(); // label follows the selection
   document.querySelectorAll('.kmap path.rg').forEach(p => p.classList.toggle('sel', String(p.dataset.k) === String(M.sel)));
   document.getElementById('mappanel').innerHTML = mapPanel();
 }
+function mapPick(k) { M.sel = k; mapRefresh(); }
 
-function listRows(rows, key, sel) {
+function listRows(rows, sel) {
   const max = Math.max(...rows.map(r => r.v));
-  return `<div class="mlist">${rows.map((r, i) => `<button class="${r.k === sel ? 'sel' : ''}" onclick="M.sel=${typeof r.k === 'string' ? `'${r.k}'` : r.k};mapRefresh()">
+  return `<div class="mlist">${rows.map((r, i) => `<button class="${String(r.k) === String(sel) ? 'sel' : ''}" onclick='mapPick(${JSON.stringify(r.k)})'>
     <span class="muted">${i + 1}</span><span>${esc(r.name)}${r.camp ? ' <span class="pill p-ok">Campaign</span>' : ''}</span><b>${r.label}</b>
     <span class="mb"><i style="width:${(r.v / max * 100).toFixed(1)}%"></i></span></button>`).join('')}</div>`;
+}
+function areaDetail(info, unit) {
+  return `<div class="kicker">${esc(info.w.name)}${unit ? ' ' + unit : ''}</div><div class="big">${info.p}%</div><div class="muted">of vote target reached</div>
+    <div class="kv" style="margin-top:12px"><span class="muted">Registered voters${SEAT === 'mca' ? '' : ' (IEBC 2022)'}</span><b>${num(info.w.reg)}</b>
+    <span class="muted">Vote target</span><b>${num(target(info.w))} <a href="#targets" style="font-size:11px;color:var(--g600)">edit</a></b>
+    <span class="muted">People reached</span><b>${num(info.st.reached)}</b>
+    <span class="muted">Activities this week</span><b>${info.st.week}</b>
+    <span class="muted">Agents · polling stations</span><b>${info.agents} · ${info.stations}</b></div>`;
 }
 
 function mapPanel() {
   const L = M.level;
   const src = `<div class="src">Registered voters: IEBC, 2022 register (per constituency and ward). New voters 2026: IEBC ECVR Phase 1 final report, 30 Apr 2026 (per county only). Campaign figures are demo data.</div>`;
+  const nb = GEO.counties.find(x => x.code === 47);
   if (L === 'kenya') {
     const sorted = GEO.counties.slice().sort((a, b) => countyVal(b) - countyVal(a));
     const lbl = (c) => M.layer === 'reg' ? num(c.reg) : M.layer === 'new' ? '+' + num(c.new26) : '+' + fmtPct(c.new26 / c.reg);
@@ -714,53 +809,66 @@ function mapPanel() {
         <span class="muted">Constituencies</span><b>${c.consts}</b>
         <span class="muted">Rank by voters</span><b>${GEO.counties.slice().sort((a, b) => b.reg - a.reg).findIndex(x => x.code === c.code) + 1} of 47</b>
         <span class="muted">Share of Kenya</span><b>${fmtPct(c.reg / REG22)}</b></div>
-        ${c.code === 47 ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('nairobi',280)">Zoom into Nairobi →</button>` : `<p class="muted" style="font-size:12px;margin-top:12px">Kampein loads constituency and ward detail for every county a client campaigns in.</p>`}`
+        ${c.code === 47 ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('nairobi',${CFG.county ? 'null' : 280})">Zoom into Nairobi →</button>` : `<p class="muted" style="font-size:12px;margin-top:12px">Kampein loads constituency and ward detail for every county a client campaigns in.</p>`}`
       : `<div class="kicker">Kenya</div><div class="big">${num(REG22)}</div><div class="muted">registered voters, 2022</div>
         <div class="kv" style="margin-top:12px"><span class="muted">New voters, 2026 ECVR</span><b class="up">+${num(NEW26)} (${fmtPct(NEW26 / REG22)})</b>
         <span class="muted">Counties</span><b>47</b><span class="muted">Constituencies</span><b>290</b></div>`;
     const title = { reg:'Most registered voters (2022)', new:'Most new voters (2026)', growth:'Fastest growing register (2026)' }[M.layer];
-    return `<div class="card mappanel">${head}<h2>${title}</h2>${listRows(sorted.slice(0, 10).map(x => ({ k:x.code, name:x.name, v:countyVal(x), label:lbl(x), camp:x.code === 47 })), 'code', M.sel)}${src}</div>`;
+    return `<div class="card mappanel">${head}<h2>${title}</h2>${listRows(sorted.slice(0, 10).map(x => ({ k:x.code, name:x.name, v:countyVal(x), label:lbl(x), camp:x.code === 47 })), M.sel)}${src}</div>`;
+  }
+  const note26 = `<div class="note" style="margin:14px 0 0">Nairobi added <b>${num(nb.new26)}</b> new voters in the 2026 drive, the most of any county (+${fmtPct(nb.new26 / nb.reg)}). IEBC has not yet published the split by constituency or ward.</div>`;
+  if (L === 'nairobi' && CFG.county) {
+    const rows = S.wards.map(w => areaInfo(w)).sort((a, b) => b.p - a.p);
+    const sel = rows.find(r => String(r.w.geo) === String(M.sel));
+    const head = sel ? areaDetail(sel, 'Constituency')
+      : `<div class="kicker">Nairobi County · ${esc(CFG.seat)}</div><div class="big">${campaignP()}%</div><div class="muted">of the county-wide vote target reached</div>
+         <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(nb.reg)}</b><span class="muted">Vote target</span><b>${num(S.wards.reduce((a, w) => a + target(w), 0))}</b></div>
+         <p class="muted" style="font-size:12px;margin-top:10px">Each constituency is coloured by progress. Tap one for detail.</p>`;
+    return `<div class="card mappanel">${head}${note26}<h2>Constituencies by progress</h2>${listRows(rows.map(r => ({ k:r.w.geo, name:r.w.name, v:r.p || 0.001, label:r.p + '%' })), M.sel)}${src}</div>`;
   }
   if (L === 'nairobi') {
     const sorted = GEO.consts.slice().sort((a, b) => b.reg - a.reg);
-    const nb = GEO.counties.find(x => x.code === 47);
     const c = GEO.consts.find(x => x.code === M.sel);
     const head = c ? `<div class="kicker">${esc(c.name)} Constituency</div><div class="big">${num(c.reg)}</div><div class="muted">registered voters, 2022</div>
         <div class="kv" style="margin-top:12px"><span class="muted">Share of Nairobi</span><b>${fmtPct(c.reg / nb.reg)}</b>
         <span class="muted">Rank in Nairobi</span><b>${sorted.findIndex(x => x.code === c.code) + 1} of 17</b></div>
-        ${c.code === 280 ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('kasarani')">Zoom into Kasarani wards →</button>` : ''}`
-      : '';
-    return `<div class="card mappanel">${head}
-      <div class="note" style="margin:14px 0 0">Nairobi added <b>${num(nb.new26)}</b> new voters in the 2026 drive, the most of any county (+${fmtPct(nb.new26 / nb.reg)}). IEBC has not yet published the split by constituency.</div>
-      <h2>Nairobi constituencies (2022)</h2>${listRows(sorted.map(x => ({ k:x.code, name:x.name, v:x.reg, label:num(x.reg), camp:x.code === 280 })), 'code', M.sel)}${src}</div>`;
+        ${c.code === 280 ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('kasarani')">Zoom into ${SEAT === 'mca' ? 'Clay City ward' : 'Kasarani wards'} →</button>` : ''}` : '';
+    return `<div class="card mappanel">${head}${note26}<h2>Nairobi constituencies (2022)</h2>${listRows(sorted.map(x => ({ k:x.code, name:x.name, v:x.reg, label:num(x.reg), camp:x.code === 280 })), M.sel)}${src}</div>`;
   }
-  const keys = GEO.map.kasarani.items.map(i => i.key);
-  const rows = keys.map(k => ({ k, ...wardInfo(k) })).sort((a, b) => b.p - a.p);
-  const sel = rows.find(r => r.k === M.sel);
-  const head = sel ? `<div class="kicker">${esc(sel.w.name)} Ward</div><div class="big">${sel.p}%</div><div class="muted">of vote target reached</div>
-      <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(sel.w.reg)}</b>
-      <span class="muted">Vote target (${Math.round(sel.w.share * 100)}%)</span><b>${num(target(sel.w))}</b>
-      <span class="muted">People reached</span><b>${num(sel.st.reached)}</b>
-      <span class="muted">Activities this week</span><b>${sel.st.week}</b>
-      <span class="muted">Agents · polling stations</span><b>${sel.agents} · ${sel.stations}</b></div>`
+  if (SEAT === 'mca') {
+    const rows = S.wards.map(w => areaInfo(w)).sort((a, b) => b.p - a.p);
+    const sel = rows.find(r => r.w.id === M.sel);
+    const head = sel ? areaDetail(sel, '')
+      : `<div class="kicker">Clay City Ward · MCA</div><div class="big">${campaignP()}%</div><div class="muted">of the ward's vote target reached</div>
+         <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(34387)}</b><span class="muted">Vote target</span><b>${num(S.wards.reduce((a, w) => a + target(w), 0))}</b></div>
+         <p class="muted" style="font-size:12px;margin-top:10px">Glowing dots are field activity logged this week. Polling centres are listed below.</p>`;
+    return `<div class="card mappanel">${head}<h2>Polling centres by progress</h2>${listRows(rows.map(r => ({ k:r.w.id, name:r.w.name, v:r.p || 0.001, label:r.p + '%' })), M.sel)}${src}</div>`;
+  }
+  const rows = S.wards.map(w => areaInfo(w)).sort((a, b) => b.p - a.p);
+  const sel = rows.find(r => r.w.geo === M.sel);
+  const head = sel ? areaDetail(sel, 'Ward')
     : `<div class="kicker">Kasarani Constituency</div><div class="big">${num(S.wards.reduce((a, w) => a + w.reg, 0))}</div><div class="muted">registered voters across 5 wards (IEBC 2022)</div>
        <p class="muted" style="font-size:12px;margin-top:10px">Each glowing dot is field activity logged this week. Tap a ward for detail.</p>`;
-  return `<div class="card mappanel">${head}<h2>Wards by progress</h2>${listRows(rows.map(r => ({ k:r.k, name:r.w.name, v:r.p || 0.001, label:r.p + '%' })), 'k', M.sel)}${src}</div>`;
+  return `<div class="card mappanel">${head}<h2>Wards by progress</h2>${listRows(rows.map(r => ({ k:r.w.geo, name:r.w.name, v:r.p || 0.001, label:r.p + '%' })), M.sel)}${src}</div>`;
 }
 
 VIEWS.map = function () {
-  if (!M.level) M.level = me().role === 'coordinator' ? 'kasarani' : 'kenya';
-  if (M.level === 'kasarani' && M.sel == null && me().role === 'coordinator') M.sel = WARD_GEO[myWard()];
+  const coord = me().role === 'coordinator';
+  if (!M.level) M.level = coord ? opLevel() : 'kenya';
+  if (M.level === 'kasarani' && CFG.county) M.level = 'nairobi';
+  if (coord && M.sel == null && M.level === opLevel()) { const w = ward(myWard()); M.sel = SEAT === 'mca' ? w.id : w.geo; }
   const L = M.level;
   const crumb = (lv, name) => `<button class="${L === lv ? 'cur' : ''}" onclick="mapGo('${lv}')">${name}</button>`;
-  const legend = L === 'kasarani' ? ['0%', 'Share of vote target reached', '40%+']
+  const opLegend = ['0%', 'People reached as share of vote target', '100%'];
+  const legend = L === 'kasarani' || (L === 'nairobi' && CFG.county) ? opLegend
     : L === 'nairobi' ? ['Fewer', 'Registered voters, 2022', 'More']
     : { reg:['Fewer', 'Registered voters, 2022', 'More'], new:['Fewer', 'New voters, 2026 ECVR', 'More'], growth:['Slower', 'Register growth in 2026', 'Faster'] }[M.layer];
-  return header('Campaign map', 'From Kenya\'s 47 counties down to your wards. Tap a highlighted area twice to zoom in.') + `
+  const crumbs = crumb('kenya', 'Kenya') + '<span>›</span>' + crumb('nairobi', 'Nairobi') + (CFG.county ? '' : '<span>›</span>' + crumb('kasarani', SEAT === 'mca' ? 'Clay City' : 'Kasarani'));
+  return header('Campaign map', `From Kenya's 47 counties down to your ${CFG.areas.toLowerCase()}. Tap a highlighted area twice to zoom in.`) + `
     <div class="mapwrap">
       <div class="mapcard">
         <div class="maptop">
-          <div class="crumbs">${crumb('kenya', 'Kenya')}<span>›</span>${crumb('nairobi', 'Nairobi')}<span>›</span>${crumb('kasarani', 'Kasarani')}</div>
+          <div class="crumbs">${crumbs}</div>
           ${L === 'kenya' ? `<div class="layers">${[['reg', 'Voters 2022'], ['new', 'New 2026'], ['growth', 'Growth']].map(([k, l]) => `<button class="${M.layer === k ? 'on' : ''}" onclick="mapLayer('${k}')">${l}</button>`).join('')}</div>` : ''}
         </div>
         ${mapSVG()}
@@ -770,12 +878,83 @@ VIEWS.map = function () {
     </div>`;
 };
 
+VIEWS.targets = function () {
+  const role = me().role, canEdit = ['owner','manager'].includes(role);
+  const ws = visibleWards();
+  const week = Date.now() - 7 * 864e5;
+  const reg = ws.reduce((a, w) => a + w.reg, 0);
+  const cast = Math.round(reg * S.turnout);
+  const need = ws.reduce((a, w) => a + target(w), 0);
+  const dis = canEdit ? '' : 'disabled';
+  const rows = ws.map(w => {
+    const st = wardStats(w);
+    const wk = S.activities.filter(a => a.ward === w.id && a.at > week).reduce((a, x) => a + x.reached, 0);
+    return `<tr>
+      <td data-label="${CFG.area}"><b>${esc(w.name)}</b></td>
+      <td data-label="Registered" class="r">${num(w.reg)}</td>
+      <td data-label="Expected votes cast" class="r muted">${num(w.reg * S.turnout)}</td>
+      <td data-label="Our vote share %" class="r"><input class="tin" name="share_${w.id}" type="number" min="0" max="100" step="1" value="${Math.round(w.share * 100)}" ${dis} oninput="previewTarget('${w.id}', this.value)"></td>
+      <td data-label="Votes needed" class="r"><b id="tv_${w.id}">${num(target(w))}</b></td>
+      <td data-label="Reached so far" class="r"><span>${num(st.reached)} <span class="muted">(${pct(st.reached, target(w))}%)</span></span></td>
+      <td data-label="Weekly outreach goal" class="r"><input class="tin" name="weekly_${w.id}" type="number" min="0" step="50" value="${w.weekly}" ${dis}></td>
+      <td data-label="This week" style="min-width:130px"><div style="flex:1;max-width:180px"><div class="row" style="margin-bottom:3px"><span>${num(wk)}</span><span class="${wk >= w.weekly ? 'up' : 'muted'}">${pct(wk, w.weekly)}%</span></div><div class="bar"><i style="width:${pct(wk, w.weekly)}%"></i></div></div></td>
+    </tr>`;
+  }).join('');
+  return header('Targets', `How many votes you need in each ${CFG.area.toLowerCase()}, and how much field work it takes each week to get there.`) + `
+    <div class="grid g4">
+      ${stat('Registered voters', num(reg), 'IEBC 2022 register')}
+      ${stat('Expected votes cast', num(cast), `at ${Math.round(S.turnout * 100)}% turnout`)}
+      ${stat('Votes we need', num(need), `${pct(need, cast)}% of votes cast`)}
+      ${stat('Agent weekly goal', num(S.agentGoal), 'people reached per agent')}
+    </div>
+    ${canEdit ? `<form class="card inline" style="grid-template-columns:1fr 1fr 1fr auto;margin-top:14px" onsubmit="return saveAssumptions(this)">
+      <div class="f"><label>Expected turnout %</label><input name="turnout" type="number" min="1" max="100" value="${Math.round(S.turnout * 100)}"></div>
+      <div class="f"><label>Our vote share % (all ${CFG.areas.toLowerCase()})</label><input name="share" type="number" min="1" max="100" value="${Math.round(S.defaultShare * 100)}"></div>
+      <div class="f"><label>Each agent reaches, per week</label><input name="agent" type="number" min="0" step="10" value="${S.agentGoal}"></div>
+      <button class="btn">Apply to campaign</button>
+    </form>
+    <div class="rule" style="margin-top:6px">Kenya's 2022 turnout was about 65% nationally; set your own figure for the seat. Applying a vote share resets every ${CFG.area.toLowerCase()} to it; fine-tune them below.</div>` : ''}
+    <h2>${CFG.area} targets</h2>
+    <form onsubmit="return saveWardTargets(this)">
+      <div class="card tablecard"><table class="stack"><thead><tr><th>${CFG.area}</th><th class="r">Registered${CFG.area === 'Polling centre' ? '' : ' (IEBC)'}</th><th class="r">Votes cast (est.)</th><th class="r">Our share %</th><th class="r">Votes needed</th><th class="r">Reached so far</th><th class="r">Weekly goal</th><th>This week</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      ${canEdit ? `<div style="margin-top:12px;display:flex;gap:10px;align-items:center"><button class="btn">Save targets</button><span class="muted" style="font-size:12px">Changes are recorded in the audit log.</span></div>` : `<p class="muted" style="font-size:12px;margin-top:10px">Targets are set by the candidate or campaign manager.</p>`}
+    </form>`;
+};
+
+function previewTarget(wid, v) {
+  const w = ward(wid), el = document.getElementById('tv_' + wid);
+  if (el) el.textContent = num(w.reg * S.turnout * Math.min(100, Math.max(0, +v)) / 100);
+}
+function saveAssumptions(form) {
+  const d = new FormData(form);
+  const t = Math.min(100, Math.max(1, +d.get('turnout'))) / 100, sh = Math.min(100, Math.max(1, +d.get('share'))) / 100, ag = Math.max(0, +d.get('agent'));
+  S.turnout = t; S.defaultShare = sh; S.agentGoal = ag;
+  S.wards.forEach(w => w.share = sh);
+  log(`Set campaign targets: ${Math.round(t * 100)}% turnout, ${Math.round(sh * 100)}% vote share in all wards, ${num(ag)} people per agent per week`);
+  save(); render(); toast('Campaign targets updated'); return false;
+}
+function saveWardTargets(form) {
+  const d = new FormData(form);
+  const changes = [];
+  S.wards.forEach(w => {
+    if (!d.has('share_' + w.id)) return;
+    const sh = Math.min(100, Math.max(0, +d.get('share_' + w.id))) / 100, wk = Math.max(0, +d.get('weekly_' + w.id));
+    if (sh !== w.share || wk !== w.weekly) changes.push(`${w.name} ${Math.round(sh * 100)}% / ${num(wk)} a week`);
+    w.share = sh; w.weekly = wk;
+  });
+  if (changes.length) log(`Updated ${CFG.area.toLowerCase()} targets: ` + changes.join('; '));
+  save(); render(); toast(changes.length ? 'Targets saved' : 'No changes'); return false;
+}
+
 function form34(f) {
   const st = station(f.station);
   return `<div class="form34">
     <div class="t">FORM 34A</div>
-    <div style="text-align:center;font-size:11px;margin-bottom:10px">Member of the National Assembly · polling station results <i>(sample)</i></div>
-    <div class="kv" style="font-size:11px;margin-bottom:8px"><span>Station:</span><span>${esc(st.code)} ${esc(st.name.toUpperCase())}</span><span>Ward:</span><span>${esc(ward(st.ward).name.toUpperCase())}</span><span>Constituency:</span><span>KASARANI</span></div>
+    <div style="text-align:center;font-size:11px;margin-bottom:10px">${esc(CFG.title)} · polling station results <i>(sample)</i></div>
+    <div class="kv" style="font-size:11px;margin-bottom:8px"><span>Station:</span><span>${esc(st.code)} ${esc(st.name.toUpperCase())}</span>${CFG.county
+      ? `<span>Constituency:</span><span>${esc(ward(st.ward).name.toUpperCase())}</span><span>County:</span><span>NAIROBI CITY</span>`
+      : `<span>Ward:</span><span>${SEAT === 'mca' ? 'CLAY CITY' : esc(ward(st.ward).name.toUpperCase())}</span><span>Constituency:</span><span>KASARANI</span>`}</div>
     <table>${S.cands.map(c => `<tr><td>${esc(c.name.toUpperCase())}</td><td style="text-align:right" class="hw">${f.truth[c.id]}</td></tr>`).join('')}
     <tr><td>REJECTED BALLOTS</td><td style="text-align:right" class="hw">${f.rej}</td></tr></table>
     <div class="stamp"><span>Presiding officer: <span class="hw">J. M.</span></span><span>Agents: <span class="hw">✓ ✓ ✓</span></span></div>
@@ -802,14 +981,14 @@ function disputeCard(f) {
 // ---------------------------------------------------------------------------
 function addWard(form) {
   const d = new FormData(form);
-  S.wards.push({ id:'w' + Date.now(), name:d.get('name').trim(), reg:+d.get('reg'), share:Math.min(100, Math.max(0, +d.get('share'))) / 100 });
+  S.wards.push({ id:'w' + Date.now(), name:d.get('name').trim(), reg:+d.get('reg'), share:Math.min(100, Math.max(0, +d.get('share'))) / 100, weekly:Math.round(+d.get('reg') * 0.035 / 50) * 50 });
   save(); render(); toast('Ward added'); return false;
 }
 function addMember(form) {
   const d = new FormData(form);
   const role = d.get('role');
   const w = me().role === 'coordinator' ? myWard() : (d.get('ward') || null);
-  if (['agent','coordinator'].includes(role) && !w) return fail('Agents and coordinators need a ward');
+  if (['agent','coordinator'].includes(role) && !w) return fail(`Agents and coordinators need a ${CFG.area.toLowerCase()}`);
   const id = 'n' + Date.now();
   S.members.push({ id, name:d.get('name').trim(), role, ward:w, phone:d.get('phone') });
   if (role === 'agent' || role === 'coordinator') S.payees.push({ id:'p' + id, kind:'member', member:id, name:d.get('name').trim() });
