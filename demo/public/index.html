@@ -148,6 +148,7 @@
     h1 { font-size:21px; }
     form.inline { grid-template-columns:1fr 1fr !important; }
     form.inline .wide { grid-column:1 / -1; }
+    .pick { grid-template-columns:1fr !important; }
     table.stack thead { display:none; }
     table.stack tr { display:block; padding:10px 4px; border-bottom:1px solid var(--z200); }
     table.stack td { display:flex; justify-content:space-between; gap:12px; border:none; padding:3px 12px; text-align:right; }
@@ -165,8 +166,7 @@
     <div class="camp" id="camp"></div>
     <nav id="nav"></nav>
     <div class="who">
-      <label for="seat">Demo seat</label>
-      <select id="seat" onchange="switchSeat(this.value)" style="margin-bottom:10px"></select>
+      <a href="#setup" class="btn" style="display:flex;width:100%;margin-bottom:12px;background:#fbbf24;color:#3b2a00;text-decoration:none">Change seat &amp; area</a>
       <label for="who">Viewing as</label>
       <select id="who" onchange="switchUser(this.value)"></select>
     </div>
@@ -175,48 +175,68 @@
 </div>
 <div id="toast"></div>
 
-<script src="stations.js"></script>
 <script src="geo.js"></script>
 <script>
 // ---------------------------------------------------------------------------
 // Sample data
 // ---------------------------------------------------------------------------
-// Five demo campaigns, one per elective seat. Registered-voter figures are IEBC's (2022 register).
+// Five seats; the candidate picks the seat and the place (county / constituency / ward).
+// Registered voters, polling centres and stations come from IEBC's 2022 register, loaded per county.
 const SEATS = {
-  mca:       { seat:'MCA', title:'Member of County Assembly', name:'Team Wanjiru 2027', candidate:'Wanjiru Kamande', where:'Clay City Ward, Kasarani', area:'Polling centre', areas:'Polling centres', county:false, scale:0.25 },
-  mp:        { seat:'MP', title:'Member of the National Assembly', name:'Team Amani 2027', candidate:'Amani Wekesa', where:'Kasarani, Nairobi', area:'Ward', areas:'Wards', county:false, scale:1 },
-  woman_rep: { seat:'Woman Rep', title:'County Woman Member of the National Assembly', name:'Team Halima 2027', candidate:'Halima Abdi', where:'Nairobi County', area:'Constituency', areas:'Constituencies', county:true, scale:3 },
-  senator:   { seat:'Senator', title:'Senator', name:'Team Otieno 2027', candidate:'Otieno Mwamba', where:'Nairobi County', area:'Constituency', areas:'Constituencies', county:true, scale:3.5 },
-  governor:  { seat:'Governor', title:'County Governor', name:'Team Mutiso 2027', candidate:'Joseph Mutiso', where:'Nairobi County', area:'Constituency', areas:'Constituencies', county:true, scale:5 },
+  mca:       { seat:'MCA', title:'Member of County Assembly', team:'Team Wanjiru 2027', candidate:'Wanjiru Kamande', area:'Polling centre', areas:'Polling centres', county:false, scale:0.25, ref:20000 },
+  mp:        { seat:'MP', title:'Member of the National Assembly', team:'Team Amani 2027', candidate:'Amani Wekesa', area:'Ward', areas:'Wards', county:false, scale:1, ref:120000 },
+  woman_rep: { seat:'Woman Rep', title:'County Woman Member of the National Assembly', team:'Team Halima 2027', candidate:'Halima Abdi', area:'Constituency', areas:'Constituencies', county:true, scale:3, ref:1500000 },
+  senator:   { seat:'Senator', title:'Senator', team:'Team Otieno 2027', candidate:'Otieno Mwamba', area:'Constituency', areas:'Constituencies', county:true, scale:3.5, ref:1500000 },
+  governor:  { seat:'Governor', title:'County Governor', team:'Team Mutiso 2027', candidate:'Joseph Mutiso', area:'Constituency', areas:'Constituencies', county:true, scale:5, ref:1500000 },
 };
-let SEAT = 'mp';
-try { const v = localStorage.getItem('kampein_demo_seat'); if (SEATS[v]) SEAT = v; } catch {}
-let CFG = SEATS[SEAT];
+const DEFAULT_PLACE = { seat:'mp', county:47, cons:280, ward:1396 };
+let PLACE = { ...DEFAULT_PLACE };
+try { const v = JSON.parse(localStorage.getItem('kampein_demo_place')); if (v && SEATS[v.seat] && GEO.idx.some(c => c.k === v.county)) PLACE = { ...DEFAULT_PLACE, ...v }; } catch {}
+let SEAT = PLACE.seat, CFG = null, CD = null; // CD: the loaded county's data file
 const CAMPAIGN = { election:'2027-08-10' };
 
 const ROLE_LABEL = { owner:'Candidate', manager:'Campaign manager', finance:'Finance lead', coordinator:'Ward coordinator', agent:'Agent', clerk:'Data clerk' };
 const KIND_LABEL = { door_to_door:'Door to door', meeting:'Meeting', rally:'Rally', recruitment:'Recruitment', other:'Other' };
 const CAT_LABEL = { agent_stipends:'Agent stipends', transport:'Transport', meals:'Meals', materials:'Branded materials', media:'Media & advertising', venues:'Rallies & venues', other:'Other' };
+const idxCounty = (k) => GEO.idx.find(c => c.k === k);
+function placeParts(p = PLACE) {
+  const c = idxCounty(p.county);
+  const k = c.consts.find(x => x.k === p.cons) || c.consts[0];
+  const w = k.wards.find(x => x.k === p.ward) || k.wards[0];
+  return { c, k, w };
+}
 function applySeat() {
-  CFG = SEATS[SEAT];
+  SEAT = PLACE.seat;
+  const { c, k, w } = placeParts();
+  PLACE.cons = k.k; PLACE.ward = w.k;
+  const base = SEATS[SEAT];
+  const reg = base.county ? c.reg : SEAT === 'mp' ? k.reg : w.reg;
+  CFG = { ...base, name:base.team, countyName:c.name, constName:k.name, wardName:w.name, reg,
+    where: base.county ? `${c.name} County` : SEAT === 'mp' ? `${k.name}, ${c.name}` : `${w.name} Ward, ${k.name}`,
+    scale: base.scale * Math.max(0.3, Math.min(2.5, reg / base.ref)) };
   ROLE_LABEL.coordinator = CFG.area === 'Polling centre' ? 'Centre coordinator' : `${CFG.area} coordinator`;
 }
+async function ensureCounty() {
+  if (CD && CD.k === PLACE.county) return;
+  const r = await fetch(`data/c${String(PLACE.county).padStart(2, '0')}.json`);
+  if (!r.ok) throw new Error('Could not load county data');
+  CD = await r.json();
+}
 
-// Real IEBC 2022 polling centres and streams (NRB, from stations.js). Each area returns [name, registered, stations, geo key].
+// Real IEBC 2022 polling centres and streams. Each area returns [name, registered, stations, map key].
 function streamsOf(centres) {
   return centres.flatMap(([code, cname, streams]) => streams.map((v, i) => ({ code:code + String(i + 1).padStart(2, '0'), name:streams.length > 1 ? `${cname}, stream ${i + 1}` : cname, reg:v, centre:cname })));
 }
 function areaDefs() {
   const sum = (sts) => sts.reduce((a, x) => a + x.reg, 0);
-  if (SEAT === 'mp') return NRB.filter(w => w.k === 280).map(w => { const st = streamsOf(w.c); return [w.wn, sum(st), st, w.g]; });
-  if (SEAT === 'mca') return NRB.find(w => w.k === 280 && w.g === 'CLAYCITY').c.map(c => { const st = streamsOf([c]); return [c[1], sum(st), st, null]; });
-  const by = new Map();
-  NRB.forEach(w => { if (!by.has(w.k)) by.set(w.k, { name:w.cn, centres:[] }); by.get(w.k).centres.push(...w.c); });
-  return [...by.entries()].sort((x, y) => x[0] - y[0]).map(([k, v]) => { const st = streamsOf(v.centres); return [v.name, sum(st), st, k]; });
+  const kc = CD.consts.find(k => k.k === PLACE.cons) || CD.consts[0];
+  if (SEAT === 'mp') return kc.wards.map(w => { const st = streamsOf(w.c); return [w.name, sum(st), st, w.k]; });
+  if (SEAT === 'mca') { const w = kc.wards.find(x => x.k === PLACE.ward) || kc.wards[0]; return w.c.map(c => { const st = streamsOf([c]); return [c[1], sum(st), st, null]; }); }
+  return CD.consts.map(k => { const st = streamsOf(k.wards.flatMap(w => w.c)); return [k.name, sum(st), st, k.k]; });
 }
 
 function seed() {
-  let s = 20270810 + Object.keys(SEATS).indexOf(SEAT) * 7919;
+  let s = 20270810 + Object.keys(SEATS).indexOf(SEAT) * 7919 + PLACE.county * 131 + (SEAT === 'mp' ? PLACE.cons : SEAT === 'mca' ? PLACE.ward : 0);
   const rnd = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
   const pick = (a) => a[Math.floor(rnd() * a.length)];
   const k1000 = (x) => Math.max(1000, Math.round(x / 1000) * 1000);
@@ -279,23 +299,24 @@ function seed() {
 
   const payees = members.filter(m => m.role === 'agent' || m.role === 'coordinator').map(m => ({ id:'p' + m.id, kind:'member', member:m.id, name:m.name }));
   payees.push({ id:'pv1', kind:'vendor', member:null, name:'Printex Graphics Ltd' });
-  payees.push({ id:'pv2', kind:'vendor', member:null, name:'Nairobi PA Hire' });
+  payees.push({ id:'pv2', kind:'vendor', member:null, name:`${CFG.countyName} PA Hire` });
   payees.push({ id:'pv3', kind:'vendor', member:null, name:'City Matatu Sacco' });
 
   const disb = [];
   const add = (o) => disb.push({ id:'d' + (disb.length + 1), at: now - (12 - disb.length) * 864e5, ...o });
-  const bw = (wi, cat) => budgets.find(b => b.ward === wards[wi].id && b.cat === cat).id;
+  const L = wards.length, wx = (i) => i % L;
+  const bw = (wi, cat) => budgets.find(b => b.ward === wards[wx(wi)].id && b.cat === cat).id;
   const bc = (cat) => budgets.find(b => !b.ward && b.cat === cat).id;
-  const A = (i) => wards[i].name;
+  const A = (i) => wards[wx(i)].name;
   const sc = (x) => Math.round(x * Math.max(0.4, Math.min(CFG.scale, 3)) / 500) * 500;
   add({ budget:bw(0,'agent_stipends'), payee:'pa0_0', amount:4500, purpose:`Weekly stipend, ${A(0)} agent`, status:'paid', by:'c0', decided:'m2', mpesa:'SKL4H2P9QA' });
-  add({ budget:bw(1,'transport'), payee:'pv3', amount:sc(18000), purpose:`Matatu hire for ${A(1)} town hall`, status:'paid', by:'c1', decided:'m2', mpesa:'SKM7J1D3RT' });
+  add({ budget:bw(1,'transport'), payee:'pv3', amount:sc(18000), purpose:`Matatu hire for ${A(1)} town hall`, status:'paid', by:`c${wx(1)}`, decided:'m2', mpesa:'SKM7J1D3RT' });
   add({ budget:bc('media'), payee:'pv1', amount:sc(85000), purpose:'Posters and flyers, batch 1', status:'paid', by:'m1', decided:'m2', mpesa:'SKN2C8W5LB' });
-  add({ budget:bw(3,'materials'), payee:'pv1', amount:sc(24000), purpose:`T-shirts for ${A(3)} agents`, status:'approved', by:'c3', decided:'m2' });
-  add({ budget:bw(4,'transport'), payee:'pc4', amount:6000, purpose:`Fuel for ${A(4)} door-to-door`, status:'rejected', by:'c4', decided:'m2' });
+  add({ budget:bw(3,'materials'), payee:'pv1', amount:sc(24000), purpose:`T-shirts for ${A(3)} agents`, status:'approved', by:`c${wx(3)}`, decided:'m2' });
+  add({ budget:bw(4,'transport'), payee:`pc${wx(4)}`, amount:6000, purpose:`Fuel for ${A(4)} door-to-door`, status:'rejected', by:`c${wx(4)}`, decided:'m2' });
   add({ budget:bc('venues'), payee:'pv2', amount:sc(45000), purpose:'PA system for the main rally', status:'requested', by:'m1' });
   add({ budget:bw(0,'transport'), payee:'pa0_1', amount:3500, purpose:`Fare for ${A(0)} agents, Saturday`, status:'requested', by:'c0' });
-  add({ budget:bw(2,'agent_stipends'), payee:'pa2_0', amount:4500, purpose:`Weekly stipend, ${A(2)} agent`, status:'requested', by:'c2' });
+  add({ budget:bw(2,'agent_stipends'), payee:`pa${wx(2)}_0`, amount:4500, purpose:`Weekly stipend, ${A(2)} agent`, status:'requested', by:`c${wx(2)}` });
 
   // Election day: Form 34A per polling station, in a shuffled order so every area has some of each status
   const cands = [
@@ -336,39 +357,41 @@ function seed() {
 // ---------------------------------------------------------------------------
 // State (one saved copy per demo seat)
 // ---------------------------------------------------------------------------
-const keyFor = (seat) => 'kampein_demo_v6_' + seat;
+const keyFor = () => `kampein_demo_v7_${SEAT}_${PLACE.county}` + (SEAT === 'mp' ? `_${PLACE.cons}` : SEAT === 'mca' ? `_${PLACE.ward}` : '');
 let S, PRISTINE;
 // Stations and the seeded election-day forms are rebuilt from the IEBC file on load;
-// only forms someone has changed are saved, so even a county seat (3,643 stations) stays small.
+// only forms someone has changed are saved, so even a big county stays small.
 function load() {
   applySeat();
   const base = seed();
   PRISTINE = base.forms.map(f => ({ status:f.status, n:f.entries.length, fin:JSON.stringify(f.final) }));
   let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(keyFor(SEAT))); } catch {}
+  try { saved = JSON.parse(localStorage.getItem(keyFor())); } catch {}
   if (!saved || !saved.formDiff) { S = base; return; }
   const diff = saved.formDiff; delete saved.formDiff;
   S = { ...saved, stations:base.stations, forms:base.forms.map(f => diff[f.id] ? { ...f, ...diff[f.id] } : f) };
 }
-load();
 const save = () => {
+  if (!S) return;
   const formDiff = {};
   S.forms.forEach((f, i) => {
     const b = PRISTINE[i];
     if (!b || f.status !== b.status || f.entries.length !== b.n || JSON.stringify(f.final) !== b.fin) formDiff[f.id] = { status:f.status, entries:f.entries, final:f.final };
   });
   const { stations, forms, ...rest } = S;
-  try { localStorage.setItem(keyFor(SEAT), JSON.stringify({ ...rest, formDiff })); } catch {}
+  try { localStorage.setItem(keyFor(), JSON.stringify({ ...rest, formDiff })); } catch {}
 };
-function resetDemo() { try { localStorage.removeItem(keyFor(SEAT)); } catch {} load(); M.level = null; M.sel = null; render(); toast('Demo reset to sample data'); }
-function switchSeat(k) {
-  save(); SEAT = k;
-  try { localStorage.setItem('kampein_demo_seat', k); } catch {}
-  load(); M.level = null; M.sel = null;
-  const ok = allowedPages();
-  if (!ok.includes(location.hash.slice(1))) location.hash = ok[0];
+function resetDemo() { try { localStorage.removeItem(keyFor()); } catch {} load(); M.level = null; M.sel = null; render(); toast('Demo reset to sample data'); }
+async function choosePlace(p) {
+  save();
+  const prev = PLACE;
+  PLACE = { ...p };
+  try { await ensureCounty(); } catch { PLACE = prev; return toast('Could not load that county. Check your connection and try again.', true); }
+  try { localStorage.setItem('kampein_demo_place', JSON.stringify(PLACE)); } catch {}
+  load(); M.level = null; M.sel = null; DRAFT = null;
+  location.hash = 'overview';
   render();
-  toast(`Now showing the ${CFG.seat} demo: ${CFG.name}, ${CFG.where}`);
+  toast(`Loaded the ${CFG.seat} demo for ${CFG.where}`);
 }
 
 const me = () => S.members.find(m => m.id === S.me);
@@ -408,6 +431,7 @@ const USERS = () => [
   ['m4', 'Brian Ouma — Data clerk B'],
 ];
 const PAGES = {
+  setup:      { label:'Seat & area',       roles:['owner','manager','finance','coordinator','clerk'], hidden:true },
   overview:   { label:'Overview',          roles:['owner','manager','finance','coordinator'] },
   map:        { label:'Map',               roles:['owner','manager','finance','coordinator'] },
   wards:      { label:'Wards & stations',  roles:['owner','manager','finance','coordinator'] },
@@ -424,12 +448,12 @@ function allowedPages() { return Object.keys(PAGES).filter(p => PAGES[p].roles.i
 function current() {
   const h = location.hash.slice(1);
   const ok = allowedPages();
-  return ok.includes(h) ? h : ok[0];
+  return ok.includes(h) ? h : ok.find(p => !PAGES[p].hidden);
 }
 function switchUser(id) {
   S.me = id; save();
   const ok = allowedPages();
-  if (!ok.includes(location.hash.slice(1))) location.hash = ok[0];
+  if (!ok.includes(location.hash.slice(1))) location.hash = ok.find(p => !PAGES[p].hidden);
   render();
   toast(`Now viewing as ${me().name} (${ROLE_LABEL[me().role]})`);
 }
@@ -452,12 +476,19 @@ function badge(p) {
   return '';
 }
 
+let DRAFT = null;
+async function boot() {
+  document.getElementById('main').innerHTML = '<p class="muted">Loading IEBC data…</p>';
+  try { await ensureCounty(); } catch { PLACE = { ...DEFAULT_PLACE }; try { await ensureCounty(); } catch { document.getElementById('main').innerHTML = '<p class="muted">Could not load the IEBC data. Check your connection and reload.</p>'; return; } }
+  load();
+  render();
+}
+
 function render() {
   document.getElementById('camp').innerHTML = `${esc(CFG.name)}<small>${esc(CFG.seat)} · ${esc(CFG.where)}</small>`;
-  document.getElementById('seat').innerHTML = Object.entries(SEATS).map(([k, c]) => `<option value="${k}" ${k === SEAT ? 'selected' : ''}>${esc(c.seat)} — ${esc(c.where)}</option>`).join('');
   document.getElementById('who').innerHTML = USERS().map(([id, l]) => `<option value="${id}" ${id === S.me ? 'selected' : ''}>${esc(l)}</option>`).join('');
   const page = current();
-  document.getElementById('nav').innerHTML = allowedPages().map(p => `<a href="#${p}" class="${p === page ? 'on' : ''}">${p === 'wards' ? CFG.areas + ' & stations' : PAGES[p].label}${badge(p)}</a>`).join('');
+  document.getElementById('nav').innerHTML = allowedPages().filter(p => !PAGES[p].hidden).map(p => `<a href="#${p}" class="${p === page ? 'on' : ''}">${p === 'wards' ? CFG.areas + ' & stations' : PAGES[p].label}${badge(p)}</a>`).join('');
   const y = window.scrollY, same = render.last === page;
   document.getElementById('main').innerHTML = VIEWS[page]();
   window.scrollTo(0, same ? y : 0);
@@ -516,7 +547,7 @@ const VIEWS = {
 
   wards() {
     const canEdit = ['owner','manager'].includes(me().role);
-    return header(`${CFG.areas} & polling stations`, `${SEAT === 'mca' ? 'Clay City ward\'s' : 'The'} ${num(S.stations.length)} polling stations, with registered voters from IEBC's 2022 register. Vote targets are set on the Targets page.`) +
+    return header(`${CFG.areas} & polling stations`, `${SEAT === 'mca' ? esc(CFG.wardName) + ' ward\'s' : 'The'} ${num(S.stations.length)} polling stations, with registered voters from IEBC's 2022 register. Vote targets are set on the Targets page.`) +
       (canEdit ? `<form class="card inline" style="grid-template-columns:2fr 1fr 1fr auto;margin-bottom:16px" onsubmit="return addWard(this)">
         <div class="f wide"><label>New ${CFG.area.toLowerCase()}</label><input name="name" required placeholder="${CFG.area} name"></div>
         <div class="f"><label>Registered voters</label><input name="reg" type="number" min="0" required></div>
@@ -682,14 +713,15 @@ const VIEWS = {
 
 
 // ---------------------------------------------------------------------------
-// Map: Kenya counties -> Nairobi constituencies -> Kasarani wards
-// County seats work at constituency level; MP at ward level; MCA inside Clay City ward.
+// Map: Kenya counties -> the chosen county's constituencies -> the chosen constituency's wards.
+// County seats work at constituency level; MP at ward level; MCA inside one ward.
 // ---------------------------------------------------------------------------
-const REG22 = GEO.counties.reduce((a, c) => a + c.reg, 0);
-const NEW26 = GEO.counties.reduce((a, c) => a + c.new26, 0);
+const REG22 = GEO.idx.reduce((a, c) => a + c.reg, 0);
+const NEW26 = GEO.idx.reduce((a, c) => a + c.new26, 0);
 let M = { level:null, sel:null, layer:'reg' };
-const opLevel = () => CFG.county ? 'nairobi' : 'kasarani';
+const opLevel = () => CFG.county ? 'county' : 'const';
 const areaByGeo = (k) => S.wards.find(w => w.geo != null && String(w.geo) === String(k));
+const geom = (L) => L === 'kenya' ? GEO.kenya : L === 'county' ? CD.map : CD.wmap[PLACE.cons];
 
 function mix(a, b, t) {
   const h = (x) => [1, 3, 5].map(i => parseInt(x.slice(i, i + 2), 16));
@@ -704,7 +736,7 @@ const RAMP_CSS = 'linear-gradient(90deg,#1d5a37,#5fd394 60%,#f7e98e)';
 const GREY = '#2c4a39';
 
 function countyVal(c) { return M.layer === 'reg' ? c.reg : M.layer === 'new' ? c.new26 : c.new26 / c.reg; }
-function scaled(vals) { // colour by rank so one giant (Nairobi) doesn't flatten everything else
+function scaled(vals) { // colour by rank so one giant county doesn't flatten everything else
   const sorted = vals.slice().sort((a, b) => a - b);
   return (v) => sorted.indexOf(v) / ((sorted.length - 1) || 1);
 }
@@ -719,90 +751,86 @@ function campaignP() {
   return pct(r, t);
 }
 const fmtPct = (x, d = 1) => (x * 100).toFixed(d) + '%';
-const parseKey = (k) => M.level === 'kasarani' ? k : +k;
 
 function mapGo(level, sel) { M.level = level; M.sel = sel ?? null; render(); }
 function mapLayer(l) { M.layer = l; render(); }
 function rings(c, label, dy) {
   return `<circle class="ring" cx="${c[0]}" cy="${c[1]}" r="6"/><circle class="ring b" cx="${c[0]}" cy="${c[1]}" r="6"/>` +
-    (label ? `<text class="tag" x="${c[0]}" y="${c[1] + (dy || -16)}" text-anchor="middle">${label}</text>` : '');
+    (label ? `<text class="tag" x="${c[0]}" y="${c[1] + (dy || -16)}" text-anchor="middle">${esc(label)}</text>` : '');
 }
-function dotsFor(geoKey, n) {
-  return (GEO.map.kasarani.pts[geoKey] || []).slice(0, n).map((p, i) => `<circle class="dot" cx="${p[0]}" cy="${p[1]}" r="2.6" style="animation-delay:${((i * 0.37) % 2.6).toFixed(2)}s"/>`).join('');
+function dotsFor(key, n) {
+  return ((CD.wmap[PLACE.cons].pts || {})[key] || []).slice(0, n).map((p, i) => `<circle class="dot" cx="${p[0]}" cy="${p[1]}" r="2.6" style="animation-delay:${((i * 0.37) % 2.6).toFixed(2)}s"/>`).join('');
 }
+const wardIdx = () => placeParts().k.wards;
+const labelPair = (x, y, a, b) => `<text class="lbl" x="${x}" y="${y - 4}" text-anchor="middle">${esc(a)}</text>` + (b ? `<text class="lbl2" x="${x}" y="${y + 13}" text-anchor="middle">${esc(b)}</text>` : '');
 
 function mapSVG() {
-  const L = M.level, g = GEO.map[L];
+  const L = M.level, g = geom(L);
   const week = Date.now() - 7 * 864e5;
   let paths = '', extra = '';
   if (L === 'kenya') {
-    const f = scaled(GEO.counties.map(countyVal));
+    const f = scaled(GEO.idx.map(countyVal));
     paths = g.items.map(it => {
-      const c = GEO.counties.find(x => x.code === it.key);
-      return `<path class="rg ${it.key === 47 ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(f(countyVal(c)))}"><title>${esc(c.name)}</title></path>`;
+      const c = idxCounty(it.k); if (!c) return '';
+      return `<path class="rg ${it.k === PLACE.county ? 'camp' : ''} ${M.sel === it.k ? 'sel' : ''}" data-k="${it.k}" d="${it.d}" fill="${ramp(f(countyVal(c)))}"><title>${esc(c.name)}</title></path>`;
     }).join('');
-    const nb = g.items.find(i => i.key === 47).c;
-    extra = rings(nb) + `<circle class="core" cx="${nb[0]}" cy="${nb[1]}" r="3.5"/><text class="tag" x="${nb[0] + 16}" y="${nb[1] + 4}">YOUR CAMPAIGN</text>`;
-  } else if (L === 'nairobi' && CFG.county) {
+    const me_ = g.items.find(i => i.k === PLACE.county);
+    if (me_) extra = rings(me_.c) + `<circle class="core" cx="${me_.c[0]}" cy="${me_.c[1]}" r="3.5"/><text class="tag" x="${me_.c[0] + (me_.c[0] > 420 ? -16 : 16)}" y="${me_.c[1] + 4}" text-anchor="${me_.c[0] > 420 ? 'end' : 'start'}">YOUR CAMPAIGN</text>`;
+  } else if (L === 'county' && CFG.county) {
     paths = g.items.map(it => {
-      const w = areaByGeo(it.key), info = areaInfo(w);
-      const mine = me().role === 'coordinator' && w.id === myWard();
-      return `<path class="rg ${mine ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(info.p / 100)}"><title>${esc(w.name)}: ${info.p}% of target</title></path>`;
+      const w = areaByGeo(it.k); if (!w) return `<path class="rg" d="${it.d}" fill="${GREY}"/>`;
+      const info = areaInfo(w), mine = me().role === 'coordinator' && w.id === myWard();
+      return `<path class="rg ${mine ? 'camp' : ''} ${M.sel === it.k ? 'sel' : ''}" data-k="${it.k}" d="${it.d}" fill="${ramp(info.p / 100)}"><title>${esc(w.name)}: ${info.p}% of target</title></path>`;
     }).join('');
-    extra = g.items.filter(it => it.key === M.sel).map(it => { const w = areaByGeo(it.key); return `<text class="lbl" x="${it.c[0]}" y="${it.c[1] - 4}" text-anchor="middle">${esc(w.name)}</text><text class="lbl2" x="${it.c[0]}" y="${it.c[1] + 13}" text-anchor="middle">${areaInfo(w).p}% of target</text>`; }).join('');
-  } else if (L === 'nairobi') {
-    const f = scaled(GEO.consts.map(c => c.reg));
+    extra = g.items.filter(it => it.k === M.sel).map(it => { const w = areaByGeo(it.k); return w ? labelPair(it.c[0], it.c[1], w.name, `${areaInfo(w).p}% of target`) : ''; }).join('');
+  } else if (L === 'county') {
+    const ks = placeParts().c.consts, f = scaled(ks.map(k => k.reg));
     paths = g.items.map(it => {
-      const c = GEO.consts.find(x => x.code === it.key);
-      return `<path class="rg ${it.key === 280 ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(f(c.reg))}"><title>${esc(c.name)}</title></path>`;
+      const k = ks.find(x => x.k === it.k); if (!k) return '';
+      return `<path class="rg ${it.k === PLACE.cons ? 'camp' : ''} ${M.sel === it.k ? 'sel' : ''}" data-k="${it.k}" d="${it.d}" fill="${ramp(f(k.reg))}"><title>${esc(k.name)}</title></path>`;
     }).join('');
-    extra = rings(g.items.find(i => i.key === 280).c, 'KASARANI');
+    const mine = g.items.find(i => i.k === PLACE.cons);
+    if (mine) extra = rings(mine.c, CFG.constName.toUpperCase());
   } else if (SEAT === 'mca') {
-    const p = campaignP();
+    const p = campaignP(), names = wardIdx();
     paths = g.items.map(it => {
-      const ours = it.key === 'CLAYCITY';
-      return `<path class="rg ${ours ? 'camp' : ''}" data-k="${it.key}" d="${it.d}" fill="${ours ? ramp(p / 100) : GREY}" style="${ours ? '' : 'opacity:.55;cursor:default'}"><title>${ours ? 'Clay City' : 'Outside the ward'}</title></path>`;
+      const ours = it.k === PLACE.ward;
+      return `<path class="rg ${ours ? 'camp' : ''}" data-k="${it.k}" d="${it.d}" fill="${ours ? ramp(p / 100) : GREY}" style="${ours ? '' : 'opacity:.55;cursor:default'}"><title>${esc((names.find(x => x.k === it.k) || {}).name || '')}</title></path>`;
     }).join('');
     const n = Math.min(40, S.activities.filter(a => a.at > week).length);
-    const cc = g.items.find(i => i.key === 'CLAYCITY').c;
-    extra = dotsFor('CLAYCITY', n) + g.items.filter(it => it.key !== 'CLAYCITY').map(it => `<text class="lbl" style="opacity:.45;font-size:12px" x="${it.c[0]}" y="${it.c[1]}" text-anchor="middle">${esc(it.key === 'CLAYCITY' ? '' : it.key[0] + it.key.slice(1).toLowerCase())}</text>`).join('')
-      + `<text class="lbl" x="${cc[0] + 10}" y="${cc[1] - 34}" text-anchor="middle">Clay City</text><text class="lbl2" x="${cc[0] + 10}" y="${cc[1] - 17}" text-anchor="middle">${p}% of target</text>`;
+    const cc = g.items.find(i => i.k === PLACE.ward);
+    extra = dotsFor(PLACE.ward, n) + (g.items.length <= 10 ? g.items.filter(it => it.k !== PLACE.ward).map(it => `<text class="lbl" style="opacity:.45;font-size:12px" x="${it.c[0]}" y="${it.c[1]}" text-anchor="middle">${esc((names.find(x => x.k === it.k) || {}).name || '')}</text>`).join('') : '')
+      + (cc ? labelPair(cc.c[0], cc.c[1], CFG.wardName, `${p}% of target`) : '');
   } else {
+    const few = g.items.length <= 8;
     paths = g.items.map(it => {
-      const w = areaByGeo(it.key), info = areaInfo(w);
-      const mine = me().role === 'coordinator' && w.id === myWard();
-      return `<path class="rg ${mine ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(info.p / 100)}"><title>${esc(w.name)}</title></path>`;
+      const w = areaByGeo(it.k); if (!w) return `<path class="rg" d="${it.d}" fill="${GREY}"/>`;
+      const info = areaInfo(w), mine = me().role === 'coordinator' && w.id === myWard();
+      return `<path class="rg ${mine ? 'camp' : ''} ${M.sel === it.k ? 'sel' : ''}" data-k="${it.k}" d="${it.d}" fill="${ramp(info.p / 100)}"><title>${esc(w.name)}</title></path>`;
     }).join('');
-    extra = g.items.map(it => {
-      const w = areaByGeo(it.key);
-      return dotsFor(it.key, Math.min(40, S.activities.filter(a => a.ward === w.id && a.at > week).length * 2));
-    }).join('') + g.items.map(it => {
-      const info = areaInfo(areaByGeo(it.key));
-      const [dx, dy] = { CLAYCITY:[10, -30], KASARANI:[-20, 30] }[it.key] || [0, 0];
-      const x = it.c[0] + dx, y = it.c[1] + dy;
-      return `<text class="lbl" x="${x}" y="${y - 4}" text-anchor="middle">${esc(info.w.name)}</text><text class="lbl2" x="${x}" y="${y + 13}" text-anchor="middle">${info.p}% of target</text>`;
-    }).join('');
+    extra = g.items.map(it => { const w = areaByGeo(it.k); return w ? dotsFor(it.k, Math.min(40, S.activities.filter(a => a.ward === w.id && a.at > week).length * 2)) : ''; }).join('')
+      + g.items.filter(it => few || it.k === M.sel).map(it => { const w = areaByGeo(it.k); return w ? labelPair(it.c[0], it.c[1], w.name, `${areaInfo(w).p}% of target`) : ''; }).join('');
   }
   return `<svg class="kmap" viewBox="0 0 ${g.w} ${g.h}" onclick="mapClick(event)" onmouseover="mapHover(event)"><g class="lvl">${paths}${extra}</g></svg>`;
 }
 
+const isOp = () => M.level === opLevel();
 function mapHover(e) {
   if (!matchMedia('(hover: hover)').matches) return;
-  const k = e.target.dataset?.k; if (!k || (SEAT === 'mca' && M.level === 'kasarani')) return;
-  const key = parseKey(k);
-  if (key === M.sel) return;
-  M.sel = key; mapRefresh();
+  const k = e.target.dataset?.k; if (!k || (SEAT === 'mca' && M.level === 'const')) return;
+  if (+k === M.sel) return;
+  M.sel = +k; mapRefresh();
 }
 function mapClick(e) {
   const k = e.target.dataset?.k; if (!k) return;
-  const key = parseKey(k);
-  if (M.level === 'kenya' && key === 47 && M.sel === 47) return mapGo('nairobi', CFG.county ? null : 280);
-  if (M.level === 'nairobi' && !CFG.county && key === 280 && M.sel === 280) return mapGo('kasarani');
-  if (SEAT === 'mca' && M.level === 'kasarani') { M.sel = null; return mapRefresh(); }
+  const key = +k;
+  if (M.level === 'kenya' && key === PLACE.county && M.sel === key) return mapGo('county', CFG.county ? null : PLACE.cons);
+  if (M.level === 'county' && !CFG.county && key === PLACE.cons && M.sel === key) return mapGo('const');
+  if (SEAT === 'mca' && M.level === 'const') { M.sel = null; return mapRefresh(); }
   M.sel = key; mapRefresh();
 }
 function mapRefresh() {
-  if (M.level === 'nairobi' && CFG.county) return render(); // label follows the selection
+  if (isOp()) return render(); // labels follow the selection
   document.querySelectorAll('.kmap path.rg').forEach(p => p.classList.toggle('sel', String(p.dataset.k) === String(M.sel)));
   document.getElementById('mappanel').innerHTML = mapPanel();
 }
@@ -816,66 +844,70 @@ function listRows(rows, sel) {
 }
 function areaDetail(info, unit) {
   return `<div class="kicker">${esc(info.w.name)}${unit ? ' ' + unit : ''}</div><div class="big">${info.p}%</div><div class="muted">of vote target reached</div>
-    <div class="kv" style="margin-top:12px"><span class="muted">Registered voters${SEAT === 'mca' ? '' : ' (IEBC 2022)'}</span><b>${num(info.w.reg)}</b>
+    <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(info.w.reg)}</b>
     <span class="muted">Vote target</span><b>${num(target(info.w))} <a href="#targets" style="font-size:11px;color:var(--g600)">edit</a></b>
     <span class="muted">People reached</span><b>${num(info.st.reached)}</b>
     <span class="muted">Activities this week</span><b>${info.st.week}</b>
     <span class="muted">Agents · polling stations</span><b>${info.agents} · ${info.stations}</b></div>`;
 }
+function useCounty(k) { DRAFT = { ...PLACE, county:k }; location.hash = 'setup'; }
 
 function mapPanel() {
   const L = M.level;
-  const src = `<div class="src">Registered voters: IEBC, 2022 register (per constituency and ward). New voters 2026: IEBC ECVR Phase 1 final report, 30 Apr 2026 (per county only). Campaign figures are demo data.</div>`;
-  const nb = GEO.counties.find(x => x.code === 47);
+  const src = `<div class="src">Registered voters, polling centres and stations: IEBC 2022 register. New voters 2026: IEBC ECVR Phase 1 final report, 30 Apr 2026 (per county only). Campaign figures are demo data.</div>`;
+  const cc = placeParts().c;
   if (L === 'kenya') {
-    const sorted = GEO.counties.slice().sort((a, b) => countyVal(b) - countyVal(a));
+    const sorted = GEO.idx.slice().sort((a, b) => countyVal(b) - countyVal(a));
     const lbl = (c) => M.layer === 'reg' ? num(c.reg) : M.layer === 'new' ? '+' + num(c.new26) : '+' + fmtPct(c.new26 / c.reg);
-    const c = GEO.counties.find(x => x.code === M.sel);
+    const c = idxCounty(M.sel);
     const head = c ? `<div class="kicker">${esc(c.name)} County</div>
         <div class="big">${num(c.reg)}</div><div class="muted">registered voters, 2022</div>
         <div class="kv" style="margin-top:12px"><span class="muted">New voters, 2026 ECVR</span><b class="up">+${num(c.new26)} (${fmtPct(c.new26 / c.reg)})</b>
-        <span class="muted">Constituencies</span><b>${c.consts}</b>
-        <span class="muted">Rank by voters</span><b>${GEO.counties.slice().sort((a, b) => b.reg - a.reg).findIndex(x => x.code === c.code) + 1} of 47</b>
+        <span class="muted">Constituencies · wards</span><b>${c.consts.length} · ${c.consts.reduce((a, k) => a + k.wards.length, 0)}</b>
+        <span class="muted">Rank by voters</span><b>${GEO.idx.slice().sort((a, b) => b.reg - a.reg).findIndex(x => x.k === c.k) + 1} of 47</b>
         <span class="muted">Share of Kenya</span><b>${fmtPct(c.reg / REG22)}</b></div>
-        ${c.code === 47 ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('nairobi',${CFG.county ? 'null' : 280})">Zoom into Nairobi →</button>` : `<p class="muted" style="font-size:12px;margin-top:12px">Kampein loads constituency and ward detail for every county a client campaigns in.</p>`}`
+        ${c.k === PLACE.county ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('county',${CFG.county ? 'null' : PLACE.cons})">Zoom into ${esc(c.name)} →</button>`
+          : `<button class="btn ghost" style="margin-top:14px;width:100%" onclick="useCounty(${c.k})">Run a campaign in ${esc(c.name)} →</button>`}`
       : `<div class="kicker">Kenya</div><div class="big">${num(REG22)}</div><div class="muted">registered voters, 2022</div>
         <div class="kv" style="margin-top:12px"><span class="muted">New voters, 2026 ECVR</span><b class="up">+${num(NEW26)} (${fmtPct(NEW26 / REG22)})</b>
-        <span class="muted">Counties</span><b>47</b><span class="muted">Constituencies</span><b>290</b></div>`;
+        <span class="muted">Counties · constituencies · wards</span><b>47 · 290 · 1,450</b></div>`;
     const title = { reg:'Most registered voters (2022)', new:'Most new voters (2026)', growth:'Fastest growing register (2026)' }[M.layer];
-    return `<div class="card mappanel">${head}<h2>${title}</h2>${listRows(sorted.slice(0, 10).map(x => ({ k:x.code, name:x.name, v:countyVal(x), label:lbl(x), camp:x.code === 47 })), M.sel)}${src}</div>`;
+    return `<div class="card mappanel">${head}<h2>${title}</h2>${listRows(sorted.slice(0, 10).map(x => ({ k:x.k, name:x.name, v:countyVal(x), label:lbl(x), camp:x.k === PLACE.county })), M.sel)}${src}</div>`;
   }
-  const note26 = `<div class="note" style="margin:14px 0 0">Nairobi added <b>${num(nb.new26)}</b> new voters in the 2026 drive, the most of any county (+${fmtPct(nb.new26 / nb.reg)}). IEBC has not yet published the split by constituency or ward.</div>`;
-  if (L === 'nairobi' && CFG.county) {
+  const note26 = `<div class="note" style="margin:14px 0 0">${esc(cc.name)} added <b>${num(cc.new26)}</b> new voters in the 2026 registration drive (+${fmtPct(cc.new26 / cc.reg)}). IEBC has not yet published the split by constituency or ward.</div>`;
+  if (L === 'county' && CFG.county) {
     const rows = S.wards.map(w => areaInfo(w)).sort((a, b) => b.p - a.p);
     const sel = rows.find(r => String(r.w.geo) === String(M.sel));
     const head = sel ? areaDetail(sel, 'Constituency')
-      : `<div class="kicker">Nairobi County · ${esc(CFG.seat)}</div><div class="big">${campaignP()}%</div><div class="muted">of the county-wide vote target reached</div>
-         <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(nb.reg)}</b><span class="muted">Vote target</span><b>${num(S.wards.reduce((a, w) => a + target(w), 0))}</b></div>
+      : `<div class="kicker">${esc(cc.name)} County · ${esc(CFG.seat)}</div><div class="big">${campaignP()}%</div><div class="muted">of the county-wide vote target reached</div>
+         <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(cc.reg)}</b><span class="muted">Vote target</span><b>${num(S.wards.reduce((a, w) => a + target(w), 0))}</b></div>
          <p class="muted" style="font-size:12px;margin-top:10px">Each constituency is coloured by progress. Tap one for detail.</p>`;
     return `<div class="card mappanel">${head}${note26}<h2>Constituencies by progress</h2>${listRows(rows.map(r => ({ k:r.w.geo, name:r.w.name, v:r.p || 0.001, label:r.p + '%' })), M.sel)}${src}</div>`;
   }
-  if (L === 'nairobi') {
-    const sorted = GEO.consts.slice().sort((a, b) => b.reg - a.reg);
-    const c = GEO.consts.find(x => x.code === M.sel);
+  if (L === 'county') {
+    const sorted = cc.consts.slice().sort((a, b) => b.reg - a.reg);
+    const c = cc.consts.find(x => x.k === M.sel);
     const head = c ? `<div class="kicker">${esc(c.name)} Constituency</div><div class="big">${num(c.reg)}</div><div class="muted">registered voters, 2022</div>
-        <div class="kv" style="margin-top:12px"><span class="muted">Share of Nairobi</span><b>${fmtPct(c.reg / nb.reg)}</b>
-        <span class="muted">Rank in Nairobi</span><b>${sorted.findIndex(x => x.code === c.code) + 1} of 17</b></div>
-        ${c.code === 280 ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('kasarani')">Zoom into ${SEAT === 'mca' ? 'Clay City ward' : 'Kasarani wards'} →</button>` : ''}` : '';
-    return `<div class="card mappanel">${head}${note26}<h2>Nairobi constituencies (2022)</h2>${listRows(sorted.map(x => ({ k:x.code, name:x.name, v:x.reg, label:num(x.reg), camp:x.code === 280 })), M.sel)}${src}</div>`;
+        <div class="kv" style="margin-top:12px"><span class="muted">Share of ${esc(cc.name)}</span><b>${fmtPct(c.reg / cc.reg)}</b>
+        <span class="muted">Rank in county</span><b>${sorted.findIndex(x => x.k === c.k) + 1} of ${cc.consts.length}</b>
+        <span class="muted">Wards</span><b>${c.wards.length}</b></div>
+        ${c.k === PLACE.cons ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('const')">Zoom into ${SEAT === 'mca' ? esc(CFG.wardName) + ' ward' : esc(c.name) + ' wards'} →</button>` : ''}` : '';
+    return `<div class="card mappanel">${head}${note26}<h2>${esc(cc.name)} constituencies (2022)</h2>${listRows(sorted.map(x => ({ k:x.k, name:x.name, v:x.reg, label:num(x.reg), camp:x.k === PLACE.cons })), M.sel)}${src}</div>`;
   }
   if (SEAT === 'mca') {
     const rows = S.wards.map(w => areaInfo(w)).sort((a, b) => b.p - a.p);
     const sel = rows.find(r => r.w.id === M.sel);
     const head = sel ? areaDetail(sel, '')
-      : `<div class="kicker">Clay City Ward · MCA</div><div class="big">${campaignP()}%</div><div class="muted">of the ward's vote target reached</div>
-         <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(34387)}</b><span class="muted">Vote target</span><b>${num(S.wards.reduce((a, w) => a + target(w), 0))}</b></div>
+      : `<div class="kicker">${esc(CFG.wardName)} Ward · MCA</div><div class="big">${campaignP()}%</div><div class="muted">of the ward's vote target reached</div>
+         <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(CFG.reg)}</b><span class="muted">Vote target</span><b>${num(S.wards.reduce((a, w) => a + target(w), 0))}</b>
+         <span class="muted">Polling centres · stations</span><b>${S.wards.length} · ${S.stations.length}</b></div>
          <p class="muted" style="font-size:12px;margin-top:10px">Glowing dots are field activity logged this week. Polling centres are listed below.</p>`;
     return `<div class="card mappanel">${head}<h2>Polling centres by progress</h2>${listRows(rows.map(r => ({ k:r.w.id, name:r.w.name, v:r.p || 0.001, label:r.p + '%' })), M.sel)}${src}</div>`;
   }
   const rows = S.wards.map(w => areaInfo(w)).sort((a, b) => b.p - a.p);
   const sel = rows.find(r => r.w.geo === M.sel);
   const head = sel ? areaDetail(sel, 'Ward')
-    : `<div class="kicker">Kasarani Constituency</div><div class="big">${num(S.wards.reduce((a, w) => a + w.reg, 0))}</div><div class="muted">registered voters across 5 wards (IEBC 2022)</div>
+    : `<div class="kicker">${esc(CFG.constName)} Constituency</div><div class="big">${num(CFG.reg)}</div><div class="muted">registered voters across ${S.wards.length} wards (IEBC 2022)</div>
        <p class="muted" style="font-size:12px;margin-top:10px">Each glowing dot is field activity logged this week. Tap a ward for detail.</p>`;
   return `<div class="card mappanel">${head}<h2>Wards by progress</h2>${listRows(rows.map(r => ({ k:r.w.geo, name:r.w.name, v:r.p || 0.001, label:r.p + '%' })), M.sel)}${src}</div>`;
 }
@@ -883,15 +915,15 @@ function mapPanel() {
 VIEWS.map = function () {
   const coord = me().role === 'coordinator';
   if (!M.level) M.level = coord ? opLevel() : 'kenya';
-  if (M.level === 'kasarani' && CFG.county) M.level = 'nairobi';
+  if (M.level === 'const' && CFG.county) M.level = 'county';
   if (coord && M.sel == null && M.level === opLevel()) { const w = ward(myWard()); M.sel = SEAT === 'mca' ? w.id : w.geo; }
   const L = M.level;
-  const crumb = (lv, name) => `<button class="${L === lv ? 'cur' : ''}" onclick="mapGo('${lv}')">${name}</button>`;
+  const crumb = (lv, name) => `<button class="${L === lv ? 'cur' : ''}" onclick="mapGo('${lv}')">${esc(name)}</button>`;
   const opLegend = ['0%', 'People reached as share of vote target', '100%'];
-  const legend = L === 'kasarani' || (L === 'nairobi' && CFG.county) ? opLegend
-    : L === 'nairobi' ? ['Fewer', 'Registered voters, 2022', 'More']
+  const legend = isOp() ? opLegend
+    : L === 'county' ? ['Fewer', 'Registered voters, 2022', 'More']
     : { reg:['Fewer', 'Registered voters, 2022', 'More'], new:['Fewer', 'New voters, 2026 ECVR', 'More'], growth:['Slower', 'Register growth in 2026', 'Faster'] }[M.layer];
-  const crumbs = crumb('kenya', 'Kenya') + '<span>›</span>' + crumb('nairobi', 'Nairobi') + (CFG.county ? '' : '<span>›</span>' + crumb('kasarani', SEAT === 'mca' ? 'Clay City' : 'Kasarani'));
+  const crumbs = crumb('kenya', 'Kenya') + '<span>›</span>' + crumb('county', CFG.countyName) + (CFG.county ? '' : '<span>›</span>' + crumb('const', SEAT === 'mca' ? CFG.wardName : CFG.constName));
   return header('Campaign map', `From Kenya's 47 counties down to your ${CFG.areas.toLowerCase()}. Tap a highlighted area twice to zoom in.`) + `
     <div class="mapwrap">
       <div class="mapcard">
@@ -1053,6 +1085,48 @@ function saveLine(id) {
   save(); render(); toast('Budget line updated');
 }
 
+// ---------------------------------------------------------------------------
+// Seat & area picker
+// ---------------------------------------------------------------------------
+VIEWS.setup = function () {
+  if (!DRAFT) DRAFT = { ...PLACE };
+  const c = idxCounty(DRAFT.county);
+  if (!c.consts.some(x => x.k === DRAFT.cons)) DRAFT.cons = c.consts[0].k;
+  const k = c.consts.find(x => x.k === DRAFT.cons);
+  if (!k.wards.some(x => x.k === DRAFT.ward)) DRAFT.ward = k.wards[0].k;
+  const w = k.wards.find(x => x.k === DRAFT.ward);
+  const seat = SEATS[DRAFT.seat];
+  const add = (ws) => ws.reduce((a, x) => ({ st:a.st + x.st, ce:a.ce + x.ce }), { st:0, ce:0 });
+  const scope = seat.county
+    ? { name:`${c.name} County`, reg:c.reg, ...add(c.consts.flatMap(x => x.wards)), covers:`${c.consts.length} constituencies · ${c.consts.reduce((a, x) => a + x.wards.length, 0)} wards` }
+    : DRAFT.seat === 'mp' ? { name:`${k.name} Constituency`, reg:k.reg, ...add(k.wards), covers:`${k.wards.length} wards` }
+    : { name:`${w.name} Ward`, reg:w.reg, st:w.st, ce:w.ce, covers:`${w.ce} polling centre${w.ce === 1 ? '' : 's'}` };
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const opt = (v, cur, label) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(label)}</option>`;
+  const cols = seat.county ? '1fr' : DRAFT.seat === 'mp' ? '1fr 1fr' : '1fr 1fr 1fr';
+  return header('Choose a seat and area', 'Pick the seat and the place. Kampein loads the real IEBC register for it: registered voters, polling centres and polling stations.') + `
+    <div class="card">
+      <div class="f"><label>1. Seat</label></div>
+      <div class="tabs">${Object.entries(SEATS).map(([key, x]) => `<button type="button" class="${DRAFT.seat === key ? 'on' : ''}" onclick="DRAFT.seat='${key}';render()">${x.seat}</button>`).join('')}</div>
+      <div class="grid pick" style="grid-template-columns:${cols};margin-top:4px">
+        <div class="f"><label>2. County</label><select onchange="DRAFT.county=+this.value;render()">${GEO.idx.slice().sort(byName).map(x => opt(x.k, DRAFT.county, x.name)).join('')}</select></div>
+        ${seat.county ? '' : `<div class="f"><label>3. Constituency</label><select onchange="DRAFT.cons=+this.value;render()">${c.consts.slice().sort(byName).map(x => opt(x.k, DRAFT.cons, x.name)).join('')}</select></div>`}
+        ${DRAFT.seat === 'mca' ? `<div class="f"><label>4. Ward</label><select onchange="DRAFT.ward=+this.value;render()">${k.wards.slice().sort(byName).map(x => opt(x.k, DRAFT.ward, x.name)).join('')}</select></div>` : ''}
+      </div>
+    </div>
+    <h2>${esc(seat.seat)} · ${esc(scope.name)}</h2>
+    <div class="grid g4">
+      ${stat('Registered voters', num(scope.reg), 'IEBC 2022 register')}
+      ${stat('Polling stations', num(scope.st), `in ${num(scope.ce)} polling centres`)}
+      ${stat('Covers', scope.covers, 'each becomes a campaign area')}
+      ${stat(`New voters 2026 · ${esc(c.name)}`, '+' + num(c.new26), `${fmtPct(c.new26 / c.reg)} county-wide (IEBC ECVR, Apr 2026)`)}
+    </div>
+    <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button class="btn" id="loadbtn" onclick="this.disabled=true;this.textContent='Loading…';choosePlace(DRAFT)">Load ${esc(scope.name)} →</button>
+      <span class="muted" style="font-size:12px">Voters, polling centres and stations are IEBC's. The candidate, team, money and activity are sample data.</span>
+    </div>`;
+};
+
 function tallyByArea(fs) {
   const areas = [...new Set(fs.map(f => station(f.station).ward))].map(ward);
   return `<h2>Polling stations by ${CFG.area.toLowerCase()} (${num(fs.length)})</h2>
@@ -1069,8 +1143,8 @@ function form34(f) {
     <div class="t">FORM 34A</div>
     <div style="text-align:center;font-size:11px;margin-bottom:10px">${esc(CFG.title)} · polling station results <i>(sample)</i></div>
     <div class="kv" style="font-size:11px;margin-bottom:8px"><span>Station:</span><span>${esc(st.code)} ${esc(st.name.toUpperCase())}</span>${CFG.county
-      ? `<span>Constituency:</span><span>${esc(ward(st.ward).name.toUpperCase())}</span><span>County:</span><span>NAIROBI CITY</span>`
-      : `<span>Ward:</span><span>${SEAT === 'mca' ? 'CLAY CITY' : esc(ward(st.ward).name.toUpperCase())}</span><span>Constituency:</span><span>KASARANI</span>`}</div>
+      ? `<span>Constituency:</span><span>${esc(ward(st.ward).name.toUpperCase())}</span><span>County:</span><span>${esc(CFG.countyName.toUpperCase())}</span>`
+      : `<span>Ward:</span><span>${esc((SEAT === 'mca' ? CFG.wardName : ward(st.ward).name).toUpperCase())}</span><span>Constituency:</span><span>${esc(CFG.constName.toUpperCase())}</span>`}</div>
     <table>${S.cands.map(c => `<tr><td>${esc(c.name.toUpperCase())}</td><td style="text-align:right" class="hw">${f.truth[c.id]}</td></tr>`).join('')}
     <tr><td>REJECTED BALLOTS</td><td style="text-align:right" class="hw">${f.rej}</td></tr></table>
     <div class="stamp"><span>Presiding officer: <span class="hw">J. M.</span></span><span>Agents: <span class="hw">✓ ✓ ✓</span></span></div>
@@ -1169,7 +1243,7 @@ function resolve(fid, idx) {
   save(); render(); toast('Station confirmed');
 }
 
-render();
+boot();
 </script>
 </body>
 </html>
