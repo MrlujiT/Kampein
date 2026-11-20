@@ -15,3 +15,13 @@ finance lead, a ward coordinator and two data clerks. Each role sees a different
    The deploy command is `npx wrangler deploy`.
 4. Deploy. The demo goes live at `kampein-demo.<your-subdomain>.workers.dev`,
    and every push to `main` redeploys it.
+
+## Map data
+
+- Boundaries: Kenya county, constituency and ward shapes from
+  [mikelmaron/kenya-election-data](https://github.com/mikelmaron/kenya-election-data), simplified with mapshaper.
+- Registered voters per constituency: IEBC, 2022 general election register (`data/iebc_2022_registered_voters_per_constituency.csv`).
+- New voters per county: IEBC, ECVR Phase 1 final status report, 30 April 2026 (`data/iebc_2026_ecvr_new_voters_per_county.csv`).
+  IEBC has not published 2026 figures per constituency or ward, so those levels use the 2022 register.
+- Kasarani ward figures (IEBC 2022): Ruai 37,361 · Clay City 34,387 · Njiru 28,140 · Mwiki 27,837 · Kasarani 27,525.
+- `data/build-map.mjs` regenerates `public/geo.js` from the boundaries and the CSVs.

@@ -86,6 +86,49 @@
   .tabs button { border:1px solid var(--z300); background:#fff; border-radius:999px; padding:5px 12px; font-size:12px; cursor:pointer; }
   .tabs button.on { background:var(--g900); color:#fff; border-color:var(--g900); }
   .empty { border:1px dashed var(--z300); border-radius:10px; padding:28px; text-align:center; color:var(--z500); }
+
+  /* ---- Map ---- */
+  .mapwrap { display:grid; grid-template-columns:minmax(0,1.75fr) minmax(0,1fr); gap:14px; align-items:start; }
+  .mapcard { background:radial-gradient(120% 90% at 25% 15%, #17552f 0%, #0a321c 55%, #06200f 100%); border-radius:14px; padding:14px 14px 10px; color:#e6f4ea; position:relative; overflow:hidden; }
+  .mapcard::after { content:''; position:absolute; inset:0; pointer-events:none; background-image:radial-gradient(rgba(255,255,255,.06) 1px, transparent 1px); background-size:14px 14px; }
+  .maptop { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; position:relative; z-index:2; }
+  .crumbs { display:flex; gap:4px; align-items:center; font-size:13px; }
+  .crumbs button { background:none; border:none; color:#a7d7b8; cursor:pointer; padding:4px 6px; border-radius:6px; font-weight:600; }
+  .crumbs button:hover { background:rgba(255,255,255,.08); color:#fff; }
+  .crumbs button.cur { color:#fff; }
+  .crumbs span { opacity:.4; }
+  .layers { display:flex; background:rgba(0,0,0,.25); border-radius:999px; padding:3px; }
+  .layers button { background:none; border:none; color:#a7d7b8; font-size:12px; padding:5px 11px; border-radius:999px; cursor:pointer; font-weight:600; }
+  .layers button.on { background:#fbbf24; color:#3b2a00; }
+  svg.kmap { width:100%; height:auto; display:block; position:relative; z-index:1; }
+  svg.kmap .lvl { animation:zin .55s cubic-bezier(.2,.8,.2,1); transform-origin:center; transform-box:fill-box; }
+  @keyframes zin { from { opacity:0; transform:scale(.86); } to { opacity:1; transform:scale(1); } }
+  .kmap path.rg { stroke:#06200f; stroke-width:.7; cursor:pointer; transition:fill .4s, opacity .2s; }
+  .kmap path.rg:hover { stroke:#fff; stroke-width:1.4; }
+  .kmap path.rg.sel { stroke:#fff; stroke-width:2.2; }
+  .kmap path.camp { stroke:#fbbf24; stroke-width:2.4; filter:drop-shadow(0 0 6px rgba(251,191,36,.7)); }
+  .kmap .ring { fill:none; stroke:#fbbf24; stroke-width:2; transform-box:fill-box; transform-origin:center; animation:ring 2.2s ease-out infinite; pointer-events:none; }
+  .kmap .ring.b { animation-delay:1.1s; }
+  @keyframes ring { from { transform:scale(1); opacity:.95; } to { transform:scale(5); opacity:0; } }
+  .kmap .core { fill:#fbbf24; pointer-events:none; }
+  .kmap .dot { fill:#fde68a; pointer-events:none; animation:blink 2.6s ease-in-out infinite; }
+  @keyframes blink { 0%,100% { opacity:.25; } 50% { opacity:1; } }
+  .kmap text { pointer-events:none; font-family:inherit; paint-order:stroke; stroke:#06200f; stroke-width:3px; stroke-linejoin:round; }
+  .kmap .lbl { fill:#fff; font-size:15px; font-weight:700; }
+  .kmap .lbl2 { fill:#fde68a; font-size:13px; font-weight:600; }
+  .kmap .tag { fill:#fbbf24; font-size:13px; font-weight:700; letter-spacing:.04em; }
+  .legend { display:flex; align-items:center; gap:8px; font-size:11px; color:#a7d7b8; position:relative; z-index:2; margin-top:4px; }
+  .legend i { flex:1; max-width:220px; height:8px; border-radius:999px; }
+  .mappanel .big { font-size:28px; font-weight:800; letter-spacing:-.02em; }
+  .mappanel .kicker { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--z500); font-weight:700; }
+  .mlist { margin-top:10px; }
+  .mlist button { display:grid; grid-template-columns:20px 1fr auto; gap:8px; align-items:center; width:100%; background:none; border:none; padding:6px 4px; border-radius:6px; cursor:pointer; text-align:left; font-size:13px; }
+  .mlist button:hover, .mlist button.sel { background:var(--g50); }
+  .mlist .mb { grid-column:2 / 4; height:5px; background:var(--z100); border-radius:999px; overflow:hidden; margin-top:-2px; }
+  .mlist .mb i { display:block; height:100%; background:var(--g500); }
+  .up { color:var(--g600); font-weight:700; }
+  .src { font-size:11px; color:var(--z500); margin-top:12px; line-height:1.5; }
+  @media (max-width: 900px) { .mapwrap { grid-template-columns:1fr; } }
   .menu-btn { display:none; }
   @media (max-width: 900px) {
     .g4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -113,7 +156,7 @@
 </style>
 </head>
 <body>
-<div class="demo-bar">Demo with sample data — names and figures are made up, not IEBC data. Changes stay in this browser. <button onclick="resetDemo()">Reset demo</button></div>
+<div class="demo-bar">Demo: people, money and campaign activity are made up. Registered-voter figures are IEBC's (2022 register, 2026 ECVR). Changes stay in this browser. <button onclick="resetDemo()">Reset demo</button></div>
 <div class="shell">
   <aside>
     <div class="brand">Kampein</div>
@@ -128,6 +171,7 @@
 </div>
 <div id="toast"></div>
 
+<script src="geo.js"></script>
 <script>
 // ---------------------------------------------------------------------------
 // Sample data
@@ -145,11 +189,11 @@ function seed() {
   const id = (p, i) => `${p}${i}`;
 
   const wardDefs = [
-    ['Clay City', 38400, ['Clay City Primary', 'Kasarani Social Hall', 'Mwihoko Grounds', 'Sunton Primary']],
-    ['Mwiki', 44100, ['Mwiki Primary', 'Mwiki Secondary', 'Sunrise Academy', 'Mwiki Chief\'s Camp']],
-    ['Kasarani', 41700, ['Kasarani Primary', 'Hunters Primary', 'Seasons Primary', 'Kasarani DO Office']],
-    ['Njiru', 52300, ['Njiru Primary', 'Njiru Secondary', 'Kamulu Grounds', 'Chokaa Primary']],
-    ['Ruai', 47900, ['Ruai Primary', 'Ruai Secondary', 'Kamulu Primary', 'Ruai Social Hall']],
+    ['Clay City', 34387, ['Clay City Primary', 'Kasarani Social Hall', 'Mwihoko Grounds', 'Sunton Primary']],
+    ['Mwiki', 27837, ['Mwiki Primary', 'Mwiki Secondary', 'Sunrise Academy', 'Mwiki Chief\'s Camp']],
+    ['Kasarani', 27525, ['Kasarani Primary', 'Hunters Primary', 'Seasons Primary', 'Kasarani DO Office']],
+    ['Njiru', 28140, ['Njiru Primary', 'Njiru Secondary', 'Kamulu Grounds', 'Chokaa Primary']],
+    ['Ruai', 37361, ['Ruai Primary', 'Ruai Secondary', 'Kamulu Primary', 'Ruai Social Hall']],
   ];
   const wards = wardDefs.map(([name, reg], i) => ({ id:id('w',i), name, reg, share:0.52 }));
   const stations = [];
@@ -248,7 +292,7 @@ function seed() {
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-const KEY = 'kampein_demo_v1';
+const KEY = 'kampein_demo_v2';
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || seed(); } catch { S = seed(); }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} };
@@ -291,6 +335,7 @@ const USERS = [
 ];
 const PAGES = {
   overview:   { label:'Overview',          roles:['owner','manager','finance','coordinator'] },
+  map:        { label:'Map',               roles:['owner','manager','finance','coordinator'] },
   wards:      { label:'Wards & stations',  roles:['owner','manager','finance','coordinator'] },
   team:       { label:'Team',              roles:['owner','manager','finance','coordinator'] },
   activity:   { label:'Field activity',    roles:['owner','manager','finance','coordinator'] },
@@ -548,6 +593,181 @@ const VIEWS = {
       ${S.audit.map(a => `<tr><td class="muted" style="white-space:nowrap">${when(a.at)}</td><td>${esc(a.who)}</td><td>${esc(a.what)}</td></tr>`).join('')}
       </tbody></table></div>`;
   },
+};
+
+
+// ---------------------------------------------------------------------------
+// Map: Kenya counties -> Nairobi constituencies -> Kasarani wards
+// ---------------------------------------------------------------------------
+const WARD_GEO = { w0:'CLAYCITY', w1:'MWIKI', w2:'KASARANI', w3:'NJIRU', w4:'RUAI' };
+const GEO_WARD = Object.fromEntries(Object.entries(WARD_GEO).map(([a, b]) => [b, a]));
+const REG22 = GEO.counties.reduce((a, c) => a + c.reg, 0);
+const NEW26 = GEO.counties.reduce((a, c) => a + c.new26, 0);
+let M = { level:null, sel:null, layer:'reg' };
+
+function mix(a, b, t) {
+  const h = (x) => [1, 3, 5].map(i => parseInt(x.slice(i, i + 2), 16));
+  const [A, B] = [h(a), h(b)];
+  return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+function ramp(t) { // dark green -> mint -> sun
+  t = Math.max(0, Math.min(1, t));
+  return t < 0.6 ? mix('#1d5a37', '#5fd394', t / 0.6) : mix('#5fd394', '#f7e98e', (t - 0.6) / 0.4);
+}
+const RAMP_CSS = 'linear-gradient(90deg,#1d5a37,#5fd394 60%,#f7e98e)';
+
+function countyVal(c) { return M.layer === 'reg' ? c.reg : M.layer === 'new' ? c.new26 : c.new26 / c.reg; }
+function scaled(vals) { // colour by rank so one giant (Nairobi) doesn't flatten everything else
+  const sorted = vals.slice().sort((a, b) => a - b);
+  return (v) => sorted.indexOf(v) / ((sorted.length - 1) || 1);
+}
+function wardInfo(geoKey) {
+  const w = ward(GEO_WARD[geoKey]);
+  const st = wardStats(w);
+  return { w, st, p:pct(st.reached, target(w)),
+    agents:S.members.filter(m => m.ward === w.id && m.role === 'agent').length,
+    stations:S.stations.filter(x => x.ward === w.id).length };
+}
+const fmtPct = (x, d = 1) => (x * 100).toFixed(d) + '%';
+
+function mapGo(level, sel) { M.level = level; M.sel = sel ?? null; render(); }
+function mapLayer(l) { M.layer = l; render(); }
+
+function mapSVG() {
+  const L = M.level, g = GEO.map[L];
+  let paths = '', extra = '';
+  if (L === 'kenya') {
+    const f = scaled(GEO.counties.map(countyVal));
+    paths = g.items.map(it => {
+      const c = GEO.counties.find(x => x.code === it.key);
+      return `<path class="rg ${it.key === 47 ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(f(countyVal(c)))}"><title>${esc(c.name)}</title></path>`;
+    }).join('');
+    const nb = g.items.find(i => i.key === 47).c;
+    extra = `<circle class="ring" cx="${nb[0]}" cy="${nb[1]}" r="6"/><circle class="ring b" cx="${nb[0]}" cy="${nb[1]}" r="6"/><circle class="core" cx="${nb[0]}" cy="${nb[1]}" r="3.5"/>
+      <text class="tag" x="${nb[0] + 16}" y="${nb[1] + 4}">YOUR CAMPAIGN</text>`;
+  } else if (L === 'nairobi') {
+    const f = scaled(GEO.consts.map(c => c.reg));
+    paths = g.items.map(it => {
+      const c = GEO.consts.find(x => x.code === it.key);
+      return `<path class="rg ${it.key === 280 ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(f(c.reg))}"><title>${esc(c.name)}</title></path>`;
+    }).join('');
+    const k = g.items.find(i => i.key === 280).c;
+    extra = `<circle class="ring" cx="${k[0]}" cy="${k[1]}" r="6"/><circle class="ring b" cx="${k[0]}" cy="${k[1]}" r="6"/>
+      <text class="tag" x="${k[0]}" y="${k[1] - 16}" text-anchor="middle">KASARANI</text>`;
+  } else {
+    paths = g.items.map(it => {
+      const wi = wardInfo(it.key);
+      const mine = me().role === 'coordinator' && wi.w.id === myWard();
+      return `<path class="rg ${mine ? 'camp' : ''} ${M.sel === it.key ? 'sel' : ''}" data-k="${it.key}" d="${it.d}" fill="${ramp(wi.p / 40)}"><title>${esc(wi.w.name)}</title></path>`;
+    }).join('');
+    const week = Date.now() - 7 * 864e5;
+    extra = g.items.map(it => {
+      const w = ward(GEO_WARD[it.key]);
+      const n = Math.min(40, S.activities.filter(a => a.ward === w.id && a.at > week).length * 2);
+      return (g.pts[it.key] || []).slice(0, n).map((p, i) => `<circle class="dot" cx="${p[0]}" cy="${p[1]}" r="2.6" style="animation-delay:${((i * 0.37) % 2.6).toFixed(2)}s"/>`).join('');
+    }).join('') + g.items.map(it => {
+      const wi = wardInfo(it.key);
+      const [dx, dy] = { CLAYCITY:[10, -30], KASARANI:[-20, 30] }[it.key] || [0, 0];
+      const x = it.c[0] + dx, y = it.c[1] + dy;
+      return `<text class="lbl" x="${x}" y="${y - 4}" text-anchor="middle">${esc(wi.w.name)}</text><text class="lbl2" x="${x}" y="${y + 13}" text-anchor="middle">${wi.p}% of target</text>`;
+    }).join('');
+  }
+  return `<svg class="kmap" viewBox="0 0 ${g.w} ${g.h}" onclick="mapClick(event)" onmouseover="mapHover(event)"><g class="lvl">${paths}${extra}</g></svg>`;
+}
+
+function mapHover(e) {
+  if (!matchMedia('(hover: hover)').matches) return;
+  const k = e.target.dataset?.k; if (!k) return;
+  const key = M.level === 'kasarani' ? k : +k;
+  if (key === M.sel) return;
+  M.sel = key; mapRefresh();
+}
+function mapClick(e) {
+  const k = e.target.dataset?.k; if (!k) return;
+  const key = M.level === 'kasarani' ? k : +k;
+  if (M.level === 'kenya' && key === 47 && M.sel === 47) return mapGo('nairobi', 280);
+  if (M.level === 'nairobi' && key === 280 && M.sel === 280) return mapGo('kasarani');
+  M.sel = key; mapRefresh();
+}
+function mapRefresh() {
+  document.querySelectorAll('.kmap path.rg').forEach(p => p.classList.toggle('sel', String(p.dataset.k) === String(M.sel)));
+  document.getElementById('mappanel').innerHTML = mapPanel();
+}
+
+function listRows(rows, key, sel) {
+  const max = Math.max(...rows.map(r => r.v));
+  return `<div class="mlist">${rows.map((r, i) => `<button class="${r.k === sel ? 'sel' : ''}" onclick="M.sel=${typeof r.k === 'string' ? `'${r.k}'` : r.k};mapRefresh()">
+    <span class="muted">${i + 1}</span><span>${esc(r.name)}${r.camp ? ' <span class="pill p-ok">Campaign</span>' : ''}</span><b>${r.label}</b>
+    <span class="mb"><i style="width:${(r.v / max * 100).toFixed(1)}%"></i></span></button>`).join('')}</div>`;
+}
+
+function mapPanel() {
+  const L = M.level;
+  const src = `<div class="src">Registered voters: IEBC, 2022 register (per constituency and ward). New voters 2026: IEBC ECVR Phase 1 final report, 30 Apr 2026 (per county only). Campaign figures are demo data.</div>`;
+  if (L === 'kenya') {
+    const sorted = GEO.counties.slice().sort((a, b) => countyVal(b) - countyVal(a));
+    const lbl = (c) => M.layer === 'reg' ? num(c.reg) : M.layer === 'new' ? '+' + num(c.new26) : '+' + fmtPct(c.new26 / c.reg);
+    const c = GEO.counties.find(x => x.code === M.sel);
+    const head = c ? `<div class="kicker">${esc(c.name)} County</div>
+        <div class="big">${num(c.reg)}</div><div class="muted">registered voters, 2022</div>
+        <div class="kv" style="margin-top:12px"><span class="muted">New voters, 2026 ECVR</span><b class="up">+${num(c.new26)} (${fmtPct(c.new26 / c.reg)})</b>
+        <span class="muted">Constituencies</span><b>${c.consts}</b>
+        <span class="muted">Rank by voters</span><b>${GEO.counties.slice().sort((a, b) => b.reg - a.reg).findIndex(x => x.code === c.code) + 1} of 47</b>
+        <span class="muted">Share of Kenya</span><b>${fmtPct(c.reg / REG22)}</b></div>
+        ${c.code === 47 ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('nairobi',280)">Zoom into Nairobi →</button>` : `<p class="muted" style="font-size:12px;margin-top:12px">Kampein loads constituency and ward detail for every county a client campaigns in.</p>`}`
+      : `<div class="kicker">Kenya</div><div class="big">${num(REG22)}</div><div class="muted">registered voters, 2022</div>
+        <div class="kv" style="margin-top:12px"><span class="muted">New voters, 2026 ECVR</span><b class="up">+${num(NEW26)} (${fmtPct(NEW26 / REG22)})</b>
+        <span class="muted">Counties</span><b>47</b><span class="muted">Constituencies</span><b>290</b></div>`;
+    const title = { reg:'Most registered voters (2022)', new:'Most new voters (2026)', growth:'Fastest growing register (2026)' }[M.layer];
+    return `<div class="card mappanel">${head}<h2>${title}</h2>${listRows(sorted.slice(0, 10).map(x => ({ k:x.code, name:x.name, v:countyVal(x), label:lbl(x), camp:x.code === 47 })), 'code', M.sel)}${src}</div>`;
+  }
+  if (L === 'nairobi') {
+    const sorted = GEO.consts.slice().sort((a, b) => b.reg - a.reg);
+    const nb = GEO.counties.find(x => x.code === 47);
+    const c = GEO.consts.find(x => x.code === M.sel);
+    const head = c ? `<div class="kicker">${esc(c.name)} Constituency</div><div class="big">${num(c.reg)}</div><div class="muted">registered voters, 2022</div>
+        <div class="kv" style="margin-top:12px"><span class="muted">Share of Nairobi</span><b>${fmtPct(c.reg / nb.reg)}</b>
+        <span class="muted">Rank in Nairobi</span><b>${sorted.findIndex(x => x.code === c.code) + 1} of 17</b></div>
+        ${c.code === 280 ? `<button class="btn" style="margin-top:14px;width:100%" onclick="mapGo('kasarani')">Zoom into Kasarani wards →</button>` : ''}`
+      : '';
+    return `<div class="card mappanel">${head}
+      <div class="note" style="margin:14px 0 0">Nairobi added <b>${num(nb.new26)}</b> new voters in the 2026 drive, the most of any county (+${fmtPct(nb.new26 / nb.reg)}). IEBC has not yet published the split by constituency.</div>
+      <h2>Nairobi constituencies (2022)</h2>${listRows(sorted.map(x => ({ k:x.code, name:x.name, v:x.reg, label:num(x.reg), camp:x.code === 280 })), 'code', M.sel)}${src}</div>`;
+  }
+  const keys = GEO.map.kasarani.items.map(i => i.key);
+  const rows = keys.map(k => ({ k, ...wardInfo(k) })).sort((a, b) => b.p - a.p);
+  const sel = rows.find(r => r.k === M.sel);
+  const head = sel ? `<div class="kicker">${esc(sel.w.name)} Ward</div><div class="big">${sel.p}%</div><div class="muted">of vote target reached</div>
+      <div class="kv" style="margin-top:12px"><span class="muted">Registered voters (IEBC 2022)</span><b>${num(sel.w.reg)}</b>
+      <span class="muted">Vote target (${Math.round(sel.w.share * 100)}%)</span><b>${num(target(sel.w))}</b>
+      <span class="muted">People reached</span><b>${num(sel.st.reached)}</b>
+      <span class="muted">Activities this week</span><b>${sel.st.week}</b>
+      <span class="muted">Agents · polling stations</span><b>${sel.agents} · ${sel.stations}</b></div>`
+    : `<div class="kicker">Kasarani Constituency</div><div class="big">${num(S.wards.reduce((a, w) => a + w.reg, 0))}</div><div class="muted">registered voters across 5 wards (IEBC 2022)</div>
+       <p class="muted" style="font-size:12px;margin-top:10px">Each glowing dot is field activity logged this week. Tap a ward for detail.</p>`;
+  return `<div class="card mappanel">${head}<h2>Wards by progress</h2>${listRows(rows.map(r => ({ k:r.k, name:r.w.name, v:r.p || 0.001, label:r.p + '%' })), 'k', M.sel)}${src}</div>`;
+}
+
+VIEWS.map = function () {
+  if (!M.level) M.level = me().role === 'coordinator' ? 'kasarani' : 'kenya';
+  if (M.level === 'kasarani' && M.sel == null && me().role === 'coordinator') M.sel = WARD_GEO[myWard()];
+  const L = M.level;
+  const crumb = (lv, name) => `<button class="${L === lv ? 'cur' : ''}" onclick="mapGo('${lv}')">${name}</button>`;
+  const legend = L === 'kasarani' ? ['0%', 'Share of vote target reached', '40%+']
+    : L === 'nairobi' ? ['Fewer', 'Registered voters, 2022', 'More']
+    : { reg:['Fewer', 'Registered voters, 2022', 'More'], new:['Fewer', 'New voters, 2026 ECVR', 'More'], growth:['Slower', 'Register growth in 2026', 'Faster'] }[M.layer];
+  return header('Campaign map', 'From Kenya\'s 47 counties down to your wards. Tap a highlighted area twice to zoom in.') + `
+    <div class="mapwrap">
+      <div class="mapcard">
+        <div class="maptop">
+          <div class="crumbs">${crumb('kenya', 'Kenya')}<span>›</span>${crumb('nairobi', 'Nairobi')}<span>›</span>${crumb('kasarani', 'Kasarani')}</div>
+          ${L === 'kenya' ? `<div class="layers">${[['reg', 'Voters 2022'], ['new', 'New 2026'], ['growth', 'Growth']].map(([k, l]) => `<button class="${M.layer === k ? 'on' : ''}" onclick="mapLayer('${k}')">${l}</button>`).join('')}</div>` : ''}
+        </div>
+        ${mapSVG()}
+        <div class="legend"><span>${legend[0]}</span><i style="background:${RAMP_CSS}"></i><span>${legend[2]}</span><span style="margin-left:auto">${legend[1]}</span></div>
+      </div>
+      <div id="mappanel">${mapPanel()}</div>
+    </div>`;
 };
 
 function form34(f) {
