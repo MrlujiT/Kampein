@@ -336,8 +336,10 @@ function render() {
   document.getElementById('who').innerHTML = USERS.map(([id, l]) => `<option value="${id}" ${id === S.me ? 'selected' : ''}>${esc(l)}</option>`).join('');
   const page = current();
   document.getElementById('nav').innerHTML = allowedPages().map(p => `<a href="#${p}" class="${p === page ? 'on' : ''}">${PAGES[p].label}${badge(p)}</a>`).join('');
+  const y = window.scrollY, same = render.last === page;
   document.getElementById('main').innerHTML = VIEWS[page]();
-  window.scrollTo(0, 0);
+  window.scrollTo(0, same ? y : 0);
+  render.last = page;
 }
 window.addEventListener('hashchange', render);
 
@@ -483,7 +485,9 @@ const VIEWS = {
         const p = S.payees.find(x => x.id === d.payee), b = S.budgets.find(x => x.id === d.budget);
         let act = '';
         if (canDecide && d.status === 'requested') act = d.by === S.me ? '<span class="muted" style="font-size:12px">Needs someone else to approve</span>' : `<button class="btn sm" onclick="decide('${d.id}','approved')">Approve</button> <button class="btn sm danger" onclick="decide('${d.id}','rejected')">Reject</button>`;
-        if (canDecide && d.status === 'approved') act = `<button class="btn sm ghost" onclick="markPaid('${d.id}')">Mark paid</button>`;
+        if (canDecide && d.status === 'approved') act = paying === d.id
+          ? `<span style="display:inline-flex;gap:6px"><input id="mpesa-ref" placeholder="M-Pesa ref" style="width:120px;border:1px solid var(--z300);border-radius:6px;padding:5px 8px;font-size:12px;text-transform:uppercase"><button class="btn sm" onclick="markPaid('${d.id}')">Save</button></span>`
+          : `<button class="btn sm ghost" onclick="paying='${d.id}';render();document.getElementById('mpesa-ref').focus()">Mark paid</button>`;
         if (d.status === 'paid') act = `<span class="muted" style="font-size:12px">M-Pesa ${esc(d.mpesa)}</span>`;
         return `<tr><td data-label="Ref" class="muted">${d.id.toUpperCase()}</td><td data-label="Purpose"><span>${esc(d.purpose)}<div class="muted" style="font-size:12px">${esc(label(b))}</div></span></td><td data-label="Pay to">${esc(p.name)}</td><td data-label="Amount (KES)" class="r"><b>${num(d.amount)}</b></td><td data-label="Requested by">${esc(member(d.by).name)}</td><td data-label="Status"><span>${pill[d.status]}${d.decided ? `<div class="muted" style="font-size:11px;margin-top:3px">by ${esc(member(d.decided).name)}</div>` : ''}</span></td><td data-label="" style="white-space:nowrap">${act}</td></tr>`;
       }).join('') || '<tr><td colspan="7" class="muted">No requests yet.</td></tr>'}
@@ -615,11 +619,12 @@ function decide(id, status) {
   log(`${status === 'approved' ? 'Approved' : 'Rejected'} ${id.toUpperCase()} (${kes(d.amount)})`);
   save(); render(); toast(status === 'approved' ? 'Approved. Pay it, then record the M-Pesa reference.' : 'Request rejected');
 }
+let paying = null;
 function markPaid(id) {
-  const ref = (prompt('M-Pesa or bank reference for this payment:') || '').trim().toUpperCase();
+  const ref = (document.getElementById('mpesa-ref')?.value || '').trim().toUpperCase();
   if (!ref) return fail('Record the M-Pesa reference before marking as paid');
   const d = S.disb.find(x => x.id === id);
-  d.status = 'paid'; d.mpesa = ref;
+  d.status = 'paid'; d.mpesa = ref; paying = null;
   log(`Marked ${id.toUpperCase()} as paid (M-Pesa ${ref})`);
   save(); render(); toast('Marked as paid');
 }
