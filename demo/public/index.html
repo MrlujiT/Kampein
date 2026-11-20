@@ -131,6 +131,27 @@
   @media (max-width: 900px) { .mapwrap { grid-template-columns:1fr; } }
   .tin { width:72px; text-align:right; border:1px solid var(--z300); border-radius:6px; padding:5px 7px; }
   .tin:disabled { background:transparent; border-color:transparent; color:inherit; }
+
+  /* ---- Telegram ---- */
+  .tgwrap { display:grid; grid-template-columns:minmax(0,400px) minmax(0,1fr); gap:16px; align-items:start; }
+  .phone { background:#17212b; border-radius:28px; padding:10px; box-shadow:0 10px 30px rgba(0,0,0,.18); }
+  .tghead { background:#517da2; color:#fff; border-radius:20px 20px 0 0; padding:10px 14px; display:flex; gap:10px; align-items:center; }
+  .tghead .av { width:36px; height:36px; border-radius:50%; background:#fbbf24; color:#3b2a00; display:grid; place-items:center; font-weight:800; }
+  .tghead small { display:block; opacity:.8; font-size:11px; }
+  .tgmsgs { height:470px; overflow-y:auto; padding:12px 10px; background:#c9d8c1; background-image:radial-gradient(rgba(255,255,255,.25) 1px, transparent 1px); background-size:16px 16px; display:flex; flex-direction:column; gap:6px; }
+  .bub { max-width:84%; padding:7px 10px 5px; border-radius:12px; font-size:13.5px; line-height:1.35; box-shadow:0 1px 1px rgba(0,0,0,.12); white-space:pre-line; }
+  .bub.bot { background:#fff; align-self:flex-start; border-bottom-left-radius:4px; }
+  .bub.me { background:#effdde; align-self:flex-end; border-bottom-right-radius:4px; }
+  .bub time { display:block; text-align:right; font-size:10px; color:#8a9a8a; margin-top:2px; }
+  .kb { display:grid; grid-template-columns:1fr 1fr; gap:4px; align-self:flex-start; max-width:84%; width:84%; }
+  .kb button { background:rgba(40,60,40,.55); color:#fff; border:none; border-radius:8px; padding:7px 6px; font-size:12.5px; cursor:pointer; }
+  .kb button:hover { background:rgba(40,60,40,.75); }
+  .kb.old button { opacity:.45; cursor:default; }
+  .tginput { display:flex; gap:8px; background:#fff; border-radius:0 0 20px 20px; padding:8px 10px; }
+  .tginput input { flex:1; border:none; outline:none; font-size:14px; }
+  .tginput button { background:#517da2; color:#fff; border:none; border-radius:50%; width:34px; height:34px; cursor:pointer; }
+  .bub .shot { transform:scale(.62); transform-origin:top left; width:161%; margin-bottom:-38%; }
+  @media (max-width: 900px) { .tgwrap { grid-template-columns:1fr; } .tgmsgs { height:420px; } }
   .menu-btn { display:none; }
   @media (max-width: 900px) {
     .g4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -439,6 +460,7 @@ const PAGES = {
   team:       { label:'Team',              roles:['owner','manager','finance','coordinator'] },
   activity:   { label:'Field activity',    roles:['owner','manager','finance','coordinator'] },
   leaderboard:{ label:'Leaderboard',       roles:['owner','manager','finance','coordinator'] },
+  telegram:   { label:'Telegram bot',      roles:['owner','manager','coordinator'] },
   budget:     { label:'Budget',            roles:['owner','manager','finance','coordinator'] },
   money:      { label:'Payments',          roles:['owner','manager','finance','coordinator'] },
   tally:      { label:'Election day',      roles:['owner','manager','coordinator','clerk'] },
@@ -492,6 +514,7 @@ function render() {
   const y = window.scrollY, same = render.last === page;
   document.getElementById('main').innerHTML = VIEWS[page]();
   window.scrollTo(0, same ? y : 0);
+  const chat = document.getElementById('tgmsgs'); if (chat) chat.scrollTop = chat.scrollHeight;
   render.last = page;
 }
 window.addEventListener('hashchange', render);
@@ -670,7 +693,7 @@ const VIEWS = {
           <div>${form34(f)}</div>
           <form class="card" onsubmit="return enterTally(this,'${f.id}')">
             <h2 style="margin-top:0">Type what the form shows</h2>
-            <p class="muted" style="margin-top:-4px">${esc(station(f.station).name)} · ${esc(ward(station(f.station).ward).name)}. Another clerk enters the same form separately; the two must match.</p>
+            <p class="muted" style="margin-top:-4px">${esc(station(f.station).name)} · ${esc(ward(station(f.station).ward).name)}. Another clerk enters the same form separately; the two must match.${f.uploadedBy && member(f.uploadedBy) ? `<br>📸 Photo sent by ${esc(member(f.uploadedBy).name)} (agent) via Telegram.` : ''}</p>
             ${S.cands.map(c => `<div class="f" style="margin-bottom:10px"><label>${esc(c.name)} (${esc(c.party)})</label><input name="${c.id}" type="number" min="0" required inputmode="numeric"></div>`).join('')}
             <div class="f" style="margin-bottom:14px"><label>Rejected ballots</label><input name="rej" type="number" min="0" required inputmode="numeric"></div>
             <button class="btn">Submit entry</button>
@@ -1119,6 +1142,121 @@ VIEWS.setup = function () {
     <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
       <button class="btn" id="loadbtn" onclick="this.disabled=true;this.textContent='Loading…';choosePlace(DRAFT)">Load ${esc(scope.name)} →</button>
       <span class="muted" style="font-size:12px">Voters, polling centres and stations are IEBC's. The candidate, team, money and activity are sample data.</span>
+    </div>`;
+};
+
+// ---------------------------------------------------------------------------
+// Telegram bot (simulated): how field agents report without installing an app
+// ---------------------------------------------------------------------------
+let TG = { agent:null, step:null, data:{} };
+const TG_MENU = [['📝 Log activity', 'log'], ["📋 Today's tasks", 'tasks'], ['📸 Send Form 34A', 'f34'], ['📊 My week', 'week']];
+const tgAgents = () => S.members.filter(m => m.role === 'agent' && (me().role !== 'coordinator' || m.ward === myWard()));
+function tgChat(id) { S.tgChats = S.tgChats || {}; return (S.tgChats[id] = S.tgChats[id] || []); }
+function tgBot(id, t, k) { tgChat(id).push({ b:1, t, k:k || null, at:Date.now() }); }
+function tgMe(id, t, img) { tgChat(id).push({ b:0, t, img:img || null, at:Date.now() }); }
+const tgFirst = (m) => m.name.split(' ')[0];
+const hhmm = (t) => new Date(t).toLocaleTimeString('en-KE', { timeZone:'Africa/Nairobi', hour:'2-digit', minute:'2-digit' });
+function tgWeek(m) { const wk = Date.now() - 7 * 864e5; return S.activities.filter(a => a.member === m.id && a.at > wk); }
+
+function tgPress(action, label) {
+  const m = member(TG.agent); if (!m) return;
+  if (label) tgMe(m.id, label);
+  const area = ward(m.ward);
+  const [cmd, arg] = action.split(':');
+  if (cmd === 'menu') tgBot(m.id, 'What would you like to do?', TG_MENU);
+  else if (cmd === 'log') { TG.step = 'kind'; tgBot(m.id, 'What did you do?', Object.entries(KIND_LABEL).filter(([k]) => k !== 'other').map(([k, l]) => [l, 'kind:' + k])); }
+  else if (cmd === 'kind') { TG.data = { kind:arg }; TG.step = 'n'; tgBot(m.id, 'How many people did you reach? Tap one or type the number.', [['10', 'n:10'], ['25', 'n:25'], ['50', 'n:50'], ['100', 'n:100']]); }
+  else if (cmd === 'n') { TG.data.n = Math.max(0, parseInt(arg, 10) || 0); TG.step = 'photo'; tgBot(m.id, 'Add a photo? It helps your coordinator verify the work.', [['📷 Attach photo', 'ph:1'], ['Skip', 'ph:0']]); }
+  else if (cmd === 'ph') {
+    S.activities.unshift({ id:'x' + Date.now(), member:m.id, ward:m.ward, kind:TG.data.kind, reached:TG.data.n, notes:arg === '1' ? 'Photo attached (Telegram)' : '', at:Date.now(), source:'telegram' });
+    const wk = tgWeek(m).reduce((a, x) => a + x.reached, 0);
+    TG.step = null;
+    tgBot(m.id, `✅ Saved: ${KIND_LABEL[TG.data.kind]}, ${num(TG.data.n)} people, ${area.name}.\nThis week you've reached ${num(wk)} of your ${num(S.agentGoal)} goal${wk >= S.agentGoal ? ' 🎉' : ''}.`, TG_MENU);
+  }
+  else if (cmd === 'tasks') {
+    const sts = S.stations.filter(x => x.ward === m.ward);
+    const pick = (i) => sts.length ? sts[(i + m.id.length) % sts.length].centre : area.name;
+    tgBot(m.id, `Today's tasks from your coordinator:\n\n1. Door to door around ${pick(0)}: 40 households\n2. Recruit 2 more agents for ${pick(3)}\n3. Team check-in at 5:00 pm, ${area.name}\n\nLog each one with 📝 when it's done.`, TG_MENU);
+  }
+  else if (cmd === 'f34') {
+    const open = S.forms.filter(f => f.status === 'not_uploaded' && station(f.station).ward === m.ward);
+    if (!open.length) tgBot(m.id, `All Form 34As for ${area.name} are already in. Asante!`, TG_MENU);
+    else { TG.step = 'f34'; tgBot(m.id, 'Which polling station is this form from?', open.slice(0, 8).map(f => [station(f.station).name, 'st:' + f.id])); }
+  }
+  else if (cmd === 'st') { TG.data = { fid:arg }; tgBot(m.id, 'Take a clear photo of the signed Form 34A: all the figures, the signatures and the presiding officer\'s stamp must be visible.', [['📷 Send photo', 'up']]); }
+  else if (cmd === 'up') {
+    const f = S.forms.find(x => x.id === TG.data.fid);
+    chatPop(m); tgMe(m.id, '', f.id);
+    f.status = 'awaiting'; f.uploadedBy = m.id; f.entries = [];
+    log(`Form 34A photo for ${station(f.station).name} received from ${m.name} via Telegram`);
+    TG.step = null;
+    tgBot(m.id, `📥 Received. ${station(f.station).name} is now in the tallying centre queue. Two clerks will type it in separately; the tally updates when their entries match.`, TG_MENU);
+    toast('Form 34A is now waiting for the data clerks');
+  }
+  else if (cmd === 'week') {
+    const acts = tgWeek(m), wk = acts.reduce((a, x) => a + x.reached, 0);
+    const rank = tgAgents().length ? S.members.filter(x => x.role === 'agent').map(x => [x.id, tgWeek(x).reduce((a, y) => a + y.reached, 0)]).sort((a, b) => b[1] - a[1]).findIndex(x => x[0] === m.id) + 1 : 0;
+    tgBot(m.id, `📊 Your last 7 days\n• Activities logged: ${acts.length}\n• People reached: ${num(wk)} of ${num(S.agentGoal)}\n• Rank among agents: ${rank} of ${S.members.filter(x => x.role === 'agent').length}`, TG_MENU);
+  }
+  save(); render();
+}
+function chatPop(m) { const c = tgChat(m.id); if (c.length && c[c.length - 1].b === 0 && c[c.length - 1].t === '📷 Send photo') c.pop(); }
+function tgSend(e) {
+  e.preventDefault();
+  const inp = document.getElementById('tgin'), t = inp.value.trim(); if (!t) return false;
+  const m = member(TG.agent); inp.value = '';
+  if (TG.step === 'n' && /^\d+$/.test(t)) { tgMe(m.id, t); TG.step = null; return tgPress('n:' + t), false; }
+  tgMe(m.id, t);
+  if (/^\/?(start|menu|help)$/i.test(t)) tgPress('menu');
+  else { tgBot(m.id, "Sorry, I didn't get that. Pick an option below.", TG_MENU); save(); render(); }
+  return false;
+}
+function tgPick(id) { TG = { agent:id, step:null, data:{} }; render(); }
+function tgBroadcast(form) {
+  const d = new FormData(form), text = d.get('msg').trim(); if (!text) return false;
+  const aud = d.get('aud');
+  const to = S.members.filter(m => m.role === 'agent' && (aud === 'all' ? (me().role !== 'coordinator' || m.ward === myWard()) : m.ward === aud));
+  to.forEach(m => tgBot(m.id, `📣 From ${me().name}:\n${text}`, TG_MENU));
+  log(`Telegram broadcast to ${to.length} agents: "${text}"`);
+  save(); render(); toast(`Sent to ${to.length} agents on Telegram`); return false;
+}
+
+VIEWS.telegram = function () {
+  const agents = tgAgents();
+  if (!agents.length) return header('Telegram bot', '') + '<div class="empty">No agents yet.</div>';
+  if (!agents.some(a => a.id === TG.agent)) TG = { agent:agents[0].id, step:null, data:{} };
+  const m = member(TG.agent), area = ward(m.ward), chat = tgChat(m.id);
+  if (!chat.length) tgBot(m.id, `Habari ${tgFirst(m)}! 👋 I'm the Kampein bot for ${CFG.name}. You're registered as an agent in ${area.name}.\n\nUse the buttons below to report from the field.`, TG_MENU);
+  const lastBot = chat.map((x, i) => x.b && x.k ? i : -1).filter(i => i >= 0).pop();
+  const msgs = chat.map((x, i) => {
+    const kb = x.k ? `<div class="kb ${i === lastBot ? '' : 'old'}">${x.k.map(([l, a]) => `<button ${i === lastBot ? `onclick='tgPress(${JSON.stringify(a)}, ${JSON.stringify(l)})'` : 'disabled'}>${esc(l)}</button>`).join('')}</div>` : '';
+    const body = x.img ? `<div class="shot">${form34(S.forms.find(f => f.id === x.img))}</div>` : esc(x.t);
+    return `<div class="bub ${x.b ? 'bot' : 'me'}">${body}<time>${hhmm(x.at)}${x.b ? '' : ' ✓✓'}</time></div>${kb}`;
+  }).join('');
+  const lead = ['owner','manager','coordinator'].includes(me().role);
+  return header('Telegram bot', 'Field agents report through Telegram: no app to install, and it works on cheap phones and slow networks. Pick an agent to try their chat.') + `
+    <div class="tgwrap">
+      <div>
+        <div class="f" style="margin-bottom:10px"><label>Agent's phone</label><select onchange="tgPick(this.value)">${agents.map(a => `<option value="${a.id}" ${a.id === m.id ? 'selected' : ''}>${esc(a.name)} · ${esc(ward(a.ward).name)}</option>`).join('')}</select></div>
+        <div class="phone">
+          <div class="tghead"><div class="av">K</div><div><b>Kampein Bot</b><small>bot · ${esc(CFG.name)}</small></div></div>
+          <div class="tgmsgs" id="tgmsgs">${msgs}</div>
+          <form class="tginput" onsubmit="return tgSend(event)"><input id="tgin" placeholder="${TG.step === 'n' ? 'Type the number of people…' : 'Message'}" autocomplete="off"><button aria-label="Send">➤</button></form>
+        </div>
+      </div>
+      <div>
+        <div class="card"><h2 style="margin-top:0">What agents can do</h2>
+          <div class="kv"><b>📝 Log activity</b><span class="muted">Door to door, meetings, rallies, recruitment, with people reached and an optional photo. It shows up instantly on Field activity, the leaderboard and the map.</span>
+          <b>📋 Today's tasks</b><span class="muted">Their coordinator's plan for the day.</span>
+          <b>📸 Send Form 34A</b><span class="muted">On election day, the photo of the signed form from their polling station goes straight to the data clerks.</span>
+          <b>📊 My week</b><span class="muted">Their progress against the weekly goal and their rank.</span></div>
+          <p class="muted" style="font-size:12px;margin-top:10px">Agents join by tapping a link sent to their phone number; Kampein matches it to their team record. No passwords.</p>
+        </div>
+        ${lead ? `<form class="card" style="margin-top:14px" onsubmit="return tgBroadcast(this)"><h2 style="margin-top:0">Broadcast to agents</h2>
+          <div class="f" style="margin-bottom:10px"><label>Message</label><input name="msg" required placeholder="e.g. Rally moved to 3 pm at the stadium. Bring your T-shirts."></div>
+          <div class="f" style="margin-bottom:12px"><label>Send to</label><select name="aud"><option value="all">${me().role === 'coordinator' ? 'All my agents' : 'All agents'}</option>${me().role === 'coordinator' ? '' : S.wards.map(w => `<option value="${w.id}">Agents in ${esc(w.name)}</option>`).join('')}</select></div>
+          <button class="btn">Send on Telegram</button></form>` : ''}
+      </div>
     </div>`;
 };
 
