@@ -158,7 +158,7 @@
 </style>
 </head>
 <body>
-<div class="demo-bar">Demo: people, money and campaign activity are made up. Registered-voter figures are IEBC's (2022 register, 2026 ECVR). Changes stay in this browser. <button onclick="resetDemo()">Reset demo</button></div>
+<div class="demo-bar">Demo: people, money and campaign activity are made up. Voters, polling centres and stations are IEBC's (2022 register; 2026 ECVR by county). Changes stay in this browser. <button onclick="resetDemo()">Reset demo</button></div>
 <div class="shell">
   <aside>
     <div class="brand">Kampein</div>
@@ -175,6 +175,7 @@
 </div>
 <div id="toast"></div>
 
+<script src="stations.js"></script>
 <script src="geo.js"></script>
 <script>
 // ---------------------------------------------------------------------------
@@ -195,27 +196,23 @@ const CAMPAIGN = { election:'2027-08-10' };
 
 const ROLE_LABEL = { owner:'Candidate', manager:'Campaign manager', finance:'Finance lead', coordinator:'Ward coordinator', agent:'Agent', clerk:'Data clerk' };
 const KIND_LABEL = { door_to_door:'Door to door', meeting:'Meeting', rally:'Rally', recruitment:'Recruitment', other:'Other' };
-const CAT_LABEL = { transport:'Transport', meals:'Meals', materials:'Materials', venues:'Venues', agent_stipends:'Agent stipends', media:'Media' };
+const CAT_LABEL = { agent_stipends:'Agent stipends', transport:'Transport', meals:'Meals', materials:'Branded materials', media:'Media & advertising', venues:'Rallies & venues', other:'Other' };
 function applySeat() {
   CFG = SEATS[SEAT];
   ROLE_LABEL.coordinator = CFG.area === 'Polling centre' ? 'Centre coordinator' : `${CFG.area} coordinator`;
 }
 
+// Real IEBC 2022 polling centres and streams (NRB, from stations.js). Each area returns [name, registered, stations, geo key].
+function streamsOf(centres) {
+  return centres.flatMap(([code, cname, streams]) => streams.map((v, i) => ({ code:code + String(i + 1).padStart(2, '0'), name:streams.length > 1 ? `${cname}, stream ${i + 1}` : cname, reg:v, centre:cname })));
+}
 function areaDefs() {
-  if (SEAT === 'mp') return [
-    ['Clay City', 34387, ['Clay City Primary', 'Kasarani Social Hall', 'Mwihoko Grounds', 'Sunton Primary'], 'CLAYCITY'],
-    ['Mwiki', 27837, ['Mwiki Primary', 'Mwiki Secondary', 'Sunrise Academy', 'Mwiki Chief\'s Camp'], 'MWIKI'],
-    ['Kasarani', 27525, ['Kasarani Primary', 'Hunters Primary', 'Seasons Primary', 'Kasarani DO Office'], 'KASARANI'],
-    ['Njiru', 28140, ['Njiru Primary', 'Njiru Secondary', 'Kamulu Grounds', 'Chokaa Primary'], 'NJIRU'],
-    ['Ruai', 37361, ['Ruai Primary', 'Ruai Secondary', 'Kamulu Primary', 'Ruai Social Hall'], 'RUAI'],
-  ];
-  if (SEAT === 'mca') { // Clay City ward (IEBC 2022: 34,387) split across sample polling centres
-    const c = [['Clay City Primary', 8120], ['Kasarani Social Hall', 6850], ['Mwihoko Grounds', 7010], ['Sunton Primary', 6420]];
-    c.push(['Kasarani–Mwiki Road Centre', 34387 - c.reduce((a, x) => a + x[1], 0)]);
-    return c.map(([n, r]) => [n, r, [`${n}, stream 1`, `${n}, stream 2`], null]);
-  }
-  return GEO.consts.slice().sort((a, b) => a.code - b.code)
-    .map(c => [c.name, c.reg, [`${c.name} Primary`, `${c.name} Social Hall`, `${c.name} Secondary`], c.code]);
+  const sum = (sts) => sts.reduce((a, x) => a + x.reg, 0);
+  if (SEAT === 'mp') return NRB.filter(w => w.k === 280).map(w => { const st = streamsOf(w.c); return [w.wn, sum(st), st, w.g]; });
+  if (SEAT === 'mca') return NRB.find(w => w.k === 280 && w.g === 'CLAYCITY').c.map(c => { const st = streamsOf([c]); return [c[1], sum(st), st, null]; });
+  const by = new Map();
+  NRB.forEach(w => { if (!by.has(w.k)) by.set(w.k, { name:w.cn, centres:[] }); by.get(w.k).centres.push(...w.c); });
+  return [...by.entries()].sort((x, y) => x[0] - y[0]).map(([k, v]) => { const st = streamsOf(v.centres); return [v.name, sum(st), st, k]; });
 }
 
 function seed() {
@@ -227,8 +224,8 @@ function seed() {
 
   const wards = defs.map(([name, reg, , geo], i) => ({ id:'w' + i, name, reg, geo, share:0.55, weekly:Math.max(100, Math.round(reg * 0.035 / 50) * 50) }));
   const stations = [];
-  defs.forEach(([, , sts], wi) => sts.forEach((n, si) => {
-    stations.push({ id:'s' + stations.length, ward:wards[wi].id, code:String(1000 + stations.length * 7).padStart(5, '0'), name:n, reg:Math.round(450 + rnd() * 250) });
+  defs.forEach(([, , sts], wi) => sts.forEach((st) => {
+    stations.push({ id:'s' + stations.length, ward:wards[wi].id, code:st.code, name:st.name, reg:st.reg, centre:st.centre });
   }));
 
   const first = ['Peter','Mercy','Kevin','Faith','Brian','Joyce','Dennis','Wanjiru','Collins','Aisha','Samuel','Lilian','Victor','Nyambura','Hassan','Esther','Moses','Cynthia','Ian','Akinyi'];
@@ -266,14 +263,19 @@ function seed() {
   activities[0].notes = 'Estate WhatsApp group admins on board';
   activities[1].notes = 'Boda boda stage chairmen meeting';
 
+  // Budget lines: item × quantity × unit cost, per area or campaign-wide
   const budgets = [];
+  const line = (ward, cat, item, qty, unitLabel, unit) => budgets.push({ id:'b' + budgets.length, ward, cat, item, qty, unitLabel, unit, amount:qty * unit });
+  const weeks = SEAT === 'mca' ? 8 : 12;
   wards.forEach((w) => {
-    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'transport', amount:k1000(120000 * CFG.scale / (CFG.county ? 3.4 : 1)) });
-    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'agent_stipends', amount:k1000(180000 * CFG.scale / (CFG.county ? 3.4 : 1)) });
-    budgets.push({ id:'b' + budgets.length, ward:w.id, cat:'materials', amount:k1000(90000 * CFG.scale / (CFG.county ? 3.4 : 1)) });
+    line(w.id, 'agent_stipends', 'Agent weekly stipends', perArea * weeks, 'agent-week', 4500);
+    line(w.id, 'transport', 'Agent transport and fare', weeks, 'week', SEAT === 'mca' ? 3000 : 8000);
+    line(w.id, 'materials', 'Branded T-shirts and caps', SEAT === 'mca' ? 80 : 200, 'piece', 450);
   });
-  budgets.push({ id:'b' + budgets.length, ward:null, cat:'media', amount:k1000(600000 * CFG.scale) });
-  budgets.push({ id:'b' + budgets.length, ward:null, cat:'venues', amount:k1000(350000 * CFG.scale) });
+  line(null, 'media', 'Posters and flyers', k1000(30000 * CFG.scale), 'piece', 12);
+  line(null, 'media', 'Vernacular FM radio spots', Math.max(4, Math.round(16 * CFG.scale)), 'spot', 6000);
+  line(null, 'venues', 'Rallies: venue, PA and tent', Math.max(2, Math.round(5 * CFG.scale)), 'rally', 45000);
+  line(null, 'meals', 'Team meals on rally days', Math.max(2, Math.round(5 * CFG.scale)), 'rally', 15000);
 
   const payees = members.filter(m => m.role === 'agent' || m.role === 'coordinator').map(m => ({ id:'p' + m.id, kind:'member', member:m.id, name:m.name }));
   payees.push({ id:'pv1', kind:'vendor', member:null, name:'Printex Graphics Ltd' });
@@ -283,14 +285,15 @@ function seed() {
   const disb = [];
   const add = (o) => disb.push({ id:'d' + (disb.length + 1), at: now - (12 - disb.length) * 864e5, ...o });
   const bw = (wi, cat) => budgets.find(b => b.ward === wards[wi].id && b.cat === cat).id;
+  const bc = (cat) => budgets.find(b => !b.ward && b.cat === cat).id;
   const A = (i) => wards[i].name;
   const sc = (x) => Math.round(x * Math.max(0.4, Math.min(CFG.scale, 3)) / 500) * 500;
   add({ budget:bw(0,'agent_stipends'), payee:'pa0_0', amount:4500, purpose:`Weekly stipend, ${A(0)} agent`, status:'paid', by:'c0', decided:'m2', mpesa:'SKL4H2P9QA' });
   add({ budget:bw(1,'transport'), payee:'pv3', amount:sc(18000), purpose:`Matatu hire for ${A(1)} town hall`, status:'paid', by:'c1', decided:'m2', mpesa:'SKM7J1D3RT' });
-  add({ budget:budgets.find(b => b.cat === 'media').id, payee:'pv1', amount:sc(85000), purpose:'Posters and flyers, batch 1', status:'paid', by:'m1', decided:'m2', mpesa:'SKN2C8W5LB' });
+  add({ budget:bc('media'), payee:'pv1', amount:sc(85000), purpose:'Posters and flyers, batch 1', status:'paid', by:'m1', decided:'m2', mpesa:'SKN2C8W5LB' });
   add({ budget:bw(3,'materials'), payee:'pv1', amount:sc(24000), purpose:`T-shirts for ${A(3)} agents`, status:'approved', by:'c3', decided:'m2' });
   add({ budget:bw(4,'transport'), payee:'pc4', amount:6000, purpose:`Fuel for ${A(4)} door-to-door`, status:'rejected', by:'c4', decided:'m2' });
-  add({ budget:budgets.find(b => b.cat === 'venues').id, payee:'pv2', amount:sc(45000), purpose:'PA system for the main rally', status:'requested', by:'m1' });
+  add({ budget:bc('venues'), payee:'pv2', amount:sc(45000), purpose:'PA system for the main rally', status:'requested', by:'m1' });
   add({ budget:bw(0,'transport'), payee:'pa0_1', amount:3500, purpose:`Fare for ${A(0)} agents, Saturday`, status:'requested', by:'c0' });
   add({ budget:bw(2,'agent_stipends'), payee:'pa2_0', amount:4500, purpose:`Weekly stipend, ${A(2)} agent`, status:'requested', by:'c2' });
 
@@ -333,15 +336,31 @@ function seed() {
 // ---------------------------------------------------------------------------
 // State (one saved copy per demo seat)
 // ---------------------------------------------------------------------------
-const keyFor = (seat) => 'kampein_demo_v4_' + seat;
-let S;
+const keyFor = (seat) => 'kampein_demo_v6_' + seat;
+let S, PRISTINE;
+// Stations and the seeded election-day forms are rebuilt from the IEBC file on load;
+// only forms someone has changed are saved, so even a county seat (3,643 stations) stays small.
 function load() {
   applySeat();
-  try { S = JSON.parse(localStorage.getItem(keyFor(SEAT))) || seed(); } catch { S = seed(); }
+  const base = seed();
+  PRISTINE = base.forms.map(f => ({ status:f.status, n:f.entries.length, fin:JSON.stringify(f.final) }));
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(keyFor(SEAT))); } catch {}
+  if (!saved || !saved.formDiff) { S = base; return; }
+  const diff = saved.formDiff; delete saved.formDiff;
+  S = { ...saved, stations:base.stations, forms:base.forms.map(f => diff[f.id] ? { ...f, ...diff[f.id] } : f) };
 }
 load();
-const save = () => { try { localStorage.setItem(keyFor(SEAT), JSON.stringify(S)); } catch {} };
-function resetDemo() { S = seed(); save(); M.level = null; M.sel = null; render(); toast('Demo reset to sample data'); }
+const save = () => {
+  const formDiff = {};
+  S.forms.forEach((f, i) => {
+    const b = PRISTINE[i];
+    if (!b || f.status !== b.status || f.entries.length !== b.n || JSON.stringify(f.final) !== b.fin) formDiff[f.id] = { status:f.status, entries:f.entries, final:f.final };
+  });
+  const { stations, forms, ...rest } = S;
+  try { localStorage.setItem(keyFor(SEAT), JSON.stringify({ ...rest, formDiff })); } catch {}
+};
+function resetDemo() { try { localStorage.removeItem(keyFor(SEAT)); } catch {} load(); M.level = null; M.sel = null; render(); toast('Demo reset to sample data'); }
 function switchSeat(k) {
   save(); SEAT = k;
   try { localStorage.setItem('kampein_demo_seat', k); } catch {}
@@ -396,7 +415,8 @@ const PAGES = {
   team:       { label:'Team',              roles:['owner','manager','finance','coordinator'] },
   activity:   { label:'Field activity',    roles:['owner','manager','finance','coordinator'] },
   leaderboard:{ label:'Leaderboard',       roles:['owner','manager','finance','coordinator'] },
-  money:      { label:'Money',             roles:['owner','manager','finance','coordinator'] },
+  budget:     { label:'Budget',            roles:['owner','manager','finance','coordinator'] },
+  money:      { label:'Payments',          roles:['owner','manager','finance','coordinator'] },
   tally:      { label:'Election day',      roles:['owner','manager','coordinator','clerk'] },
   audit:      { label:'Audit log',         roles:['owner','manager','finance'] },
 };
@@ -496,19 +516,30 @@ const VIEWS = {
 
   wards() {
     const canEdit = ['owner','manager'].includes(me().role);
-    return header(`${CFG.areas} & polling stations`, CFG.area === 'Polling centre' ? `Clay City ward has ${num(34387)} registered voters (IEBC 2022), split here across sample polling centres. Vote targets are set on the Targets page.` : `Registered voters per ${CFG.area.toLowerCase()} from IEBC (2022). Vote targets are set on the Targets page.`) +
+    return header(`${CFG.areas} & polling stations`, `${SEAT === 'mca' ? 'Clay City ward\'s' : 'The'} ${num(S.stations.length)} polling stations, with registered voters from IEBC's 2022 register. Vote targets are set on the Targets page.`) +
       (canEdit ? `<form class="card inline" style="grid-template-columns:2fr 1fr 1fr auto;margin-bottom:16px" onsubmit="return addWard(this)">
         <div class="f wide"><label>New ${CFG.area.toLowerCase()}</label><input name="name" required placeholder="${CFG.area} name"></div>
         <div class="f"><label>Registered voters</label><input name="reg" type="number" min="0" required></div>
         <div class="f"><label>Our vote share %</label><input name="share" type="number" min="0" max="100" value="${Math.round(S.defaultShare * 100)}"></div>
         <button class="btn">Add ${CFG.area.toLowerCase()}</button></form>` : '') +
       visibleWards().map(w => {
-        const sts = S.stations.filter(s => s.ward === w.id);
+        const sts = S.stations.filter(x => x.ward === w.id);
+        const agents = S.members.filter(m => m.role === 'agent' && m.ward === w.id);
+        const open = me().role === 'coordinator' || visibleWards().length <= 5 ? 'open' : '';
+        let body;
+        if (SEAT === 'mca') { // the area is one polling centre: list its streams
+          body = `<table class="stack" style="margin-top:8px"><thead><tr><th>IEBC code</th><th>Polling station</th><th class="r">Registered</th><th>Agent</th></tr></thead><tbody>
+            ${sts.map((x, i) => `<tr><td data-label="IEBC code" class="muted">${x.code}</td><td data-label="Station">${esc(x.name)}</td><td data-label="Registered" class="r">${num(x.reg)}</td><td data-label="Agent">${agents[i] ? esc(agents[i].name) : '<span class="muted">Unassigned</span>'}</td></tr>`).join('')}</tbody></table>`;
+        } else {
+          const centres = [];
+          sts.forEach(x => { let c = centres.find(c => c.name === x.centre); if (!c) centres.push(c = { name:x.centre, code:x.code.slice(0, 13), n:0, reg:0 }); c.n++; c.reg += x.reg; });
+          body = `<details ${open} style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:13px">${centres.length} polling centres · ${sts.length} polling stations (streams)</summary>
+            <table class="stack" style="margin-top:8px"><thead><tr><th>IEBC code</th><th>Polling centre</th><th class="r">Streams</th><th class="r">Registered</th><th>Agent</th></tr></thead><tbody>
+            ${centres.map((c, i) => `<tr><td data-label="IEBC code" class="muted">${c.code}</td><td data-label="Centre">${esc(c.name)}</td><td data-label="Streams" class="r">${c.n}</td><td data-label="Registered" class="r">${num(c.reg)}</td><td data-label="Agent">${agents[i] ? esc(agents[i].name) : '<span class="muted">Unassigned</span>'}</td></tr>`).join('')}</tbody></table></details>`;
+        }
         return `<div class="card" style="margin-bottom:12px">
-          <div class="row" style="font-size:14px"><b>${esc(w.name)}</b><span class="muted">${num(w.reg)} voters · target ${num(target(w))} votes</span></div>
-          ${sts.length ? `<table style="margin-top:8px"><thead><tr><th>Code</th><th>Polling station</th><th class="r">Registered</th><th>Agent</th></tr></thead><tbody>
-          ${sts.map((s, i) => { const ag = S.members.filter(m => m.role === 'agent' && m.ward === w.id)[i]; return `<tr><td class="muted">${s.code}</td><td>${esc(s.name)}</td><td class="r">${num(s.reg)}</td><td>${ag ? esc(ag.name) : '<span class="muted">Unassigned</span>'}</td></tr>`; }).join('')}
-          </tbody></table>` : '<p class="muted">No polling stations yet.</p>'}
+          <div class="row" style="font-size:14px"><b>${esc(w.name)}</b><span class="muted">${num(w.reg)} voters · ${sts.length} stations · target ${num(target(w))} votes</span></div>
+          ${sts.length ? body : '<p class="muted">No polling stations yet.</p>'}
         </div>`;
       }).join('');
   },
@@ -569,14 +600,14 @@ const VIEWS = {
     const canDecide = ['owner','finance'].includes(role);
     const budgets = S.budgets.filter(b => !coord || b.ward === myWard());
     const disb = S.disb.filter(d => lead || d.by === S.me).slice().reverse();
-    const used = (b) => S.disb.filter(d => d.budget === b.id && ['approved','paid'].includes(d.status)).reduce((s, d) => s + d.amount, 0);
+    const used = committed;
     const payees = S.payees.filter(p => !coord || p.kind === 'vendor' || member(p.member).ward === myWard());
-    const label = (b) => `${b.ward ? ward(b.ward).name : 'Campaign-wide'} · ${CAT_LABEL[b.cat]}`;
+    const label = budgetLabel;
     const pill = { requested:'<span class="pill p-req">Awaiting approval</span>', approved:'<span class="pill p-ok">Approved</span>', paid:'<span class="pill p-paid">Paid</span>', rejected:'<span class="pill p-no">Rejected</span>' };
-    return header('Money', 'Every shilling budgeted, approved and paid to a named person or vendor.') + `
+    return header('Payments', 'Every shilling requested against a budget line, approved, and paid to a named person or vendor.') + `
       <div class="note">Payments only go to registered team members and vendors. Kampein has no way to record payments to voters, by design.</div>
       ${role !== 'finance' && role !== 'owner' ? `<form class="card inline" style="grid-template-columns:1.6fr 1.6fr 1fr 2fr auto;margin-bottom:16px" onsubmit="return requestMoney(this)">
-        <div class="f wide"><label>Budget line</label><select name="budget">${budgets.map(b => `<option value="${b.id}">${esc(label(b))}</option>`).join('')}</select></div>
+        <div class="f wide"><label>Budget line</label><select name="budget">${budgets.map(b => `<option value="${b.id}">${esc(label(b))} (KES ${num(b.amount - used(b))} left)</option>`).join('')}</select></div>
         <div class="f wide"><label>Pay to</label><select name="payee">${payees.map(p => `<option value="${p.id}">${esc(p.name)}${p.kind === 'vendor' ? ' (vendor)' : ''}</option>`).join('')}</select></div>
         <div class="f"><label>Amount (KES)</label><input name="amount" type="number" min="1" required></div>
         <div class="f wide"><label>Purpose</label><input name="purpose" required placeholder="What is it for?"></div>
@@ -594,11 +625,8 @@ const VIEWS = {
         return `<tr><td data-label="Ref" class="muted">${d.id.toUpperCase()}</td><td data-label="Purpose"><span>${esc(d.purpose)}<div class="muted" style="font-size:12px">${esc(label(b))}</div></span></td><td data-label="Pay to">${esc(p.name)}</td><td data-label="Amount (KES)" class="r"><b>${num(d.amount)}</b></td><td data-label="Requested by">${esc(member(d.by).name)}</td><td data-label="Status"><span>${pill[d.status]}${d.decided ? `<div class="muted" style="font-size:11px;margin-top:3px">by ${esc(member(d.decided).name)}</div>` : ''}</span></td><td data-label="" style="white-space:nowrap">${act}</td></tr>`;
       }).join('') || '<tr><td colspan="7" class="muted">No requests yet.</td></tr>'}
       </tbody></table></div>
-      <div class="rule">Amounts can't be changed after a request. Nobody approves their own request. "Paid" needs an M-Pesa reference. Payment records can't be deleted.</div>
-      <h2>Budgets</h2>
-      <div class="card tablecard"><table><thead><tr><th>Budget line</th><th class="r">Budget (KES)</th><th class="r">Committed</th><th style="width:30%">Used</th></tr></thead><tbody>
-      ${budgets.map(b => `<tr><td>${esc(label(b))}</td><td class="r">${num(b.amount)}</td><td class="r">${num(used(b))}</td><td><div class="bar" style="margin-top:5px"><i style="width:${pct(used(b), b.amount)}%"></i></div></td></tr>`).join('')}
-      </tbody></table></div>`;
+      <div class="rule">Requests can't exceed what's left on a budget line. Amounts can't be changed after a request. Nobody approves their own request. "Paid" needs an M-Pesa reference. Payment records can't be deleted.</div>
+      <p class="muted" style="font-size:13px;margin-top:14px">Budget lines are set up on the <a href="#budget" style="color:var(--g600)">Budget</a> page.</p>`;
   },
 
   tally() {
@@ -637,10 +665,10 @@ const VIEWS = {
         <div class="muted" style="font-size:12px">Stations reporting: ${reported.length}/${S.forms.length}. Totals include confirmed forms only.</div>
       </div>
       ${disputed.length && canResolve ? `<h2>Needs your decision</h2>${disputed.map(f => disputeCard(f)).join('')}` : ''}
-      <h2>Polling stations</h2>
+      ${fs.length > 120 ? tallyByArea(fs) : `<h2>Polling stations</h2>
       <div class="card tablecard"><table><thead><tr><th>Station</th><th>${CFG.area}</th><th>Status</th><th class="r">Entries</th>${S.cands.map(c => `<th class="r">${esc(c.name.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>
       ${fs.map(f => { const st = station(f.station); return `<tr><td>${esc(st.name)}</td><td>${esc(ward(st.ward).name)}</td><td>${statusPill[f.status]}</td><td class="r muted">${f.entries.length}/2</td>${S.cands.map(c => `<td class="r">${f.final ? num(f.final.votes[c.id]) : '<span class="muted">—</span>'}</td>`).join('')}</tr>`; }).join('')}
-      </tbody></table></div>
+      </tbody></table></div>`}
       <div class="rule">Each form is typed in by two different clerks. Matching entries confirm the station; differences go to the campaign manager with the photo.</div>`;
   },
 
@@ -947,6 +975,94 @@ function saveWardTargets(form) {
   save(); render(); toast(changes.length ? 'Targets saved' : 'No changes'); return false;
 }
 
+// ---------------------------------------------------------------------------
+// Budget: line items (quantity × unit cost) per area or campaign-wide
+// ---------------------------------------------------------------------------
+const committed = (b) => S.disb.filter(d => d.budget === b.id && ['requested','approved','paid'].includes(d.status)).reduce((a, d) => a + d.amount, 0);
+const paidOn = (b) => S.disb.filter(d => d.budget === b.id && d.status === 'paid').reduce((a, d) => a + d.amount, 0);
+const budgetLabel = (b) => `${b.ward ? ward(b.ward).name : 'Campaign-wide'} · ${b.item || CAT_LABEL[b.cat]}`;
+let editingLine = null;
+const plural = (w, n) => n === 1 ? w : /[^aeiou]y$/.test(w) ? w.slice(0, -1) + 'ies' : w + 's';
+
+VIEWS.budget = function () {
+  const role = me().role, canEdit = ['owner','finance'].includes(role), coord = role === 'coordinator';
+  const lines = S.budgets.filter(b => !coord || b.ward === myWard());
+  const tot = lines.reduce((a, b) => a + b.amount, 0), com = lines.reduce((a, b) => a + committed(b), 0), paid = lines.reduce((a, b) => a + paidOn(b), 0);
+  const groups = [null, ...S.wards.map(w => w.id)].filter(g => lines.some(b => b.ward === g));
+  const cats = Object.keys(CAT_LABEL).map(c => ({ c, v:lines.filter(b => b.cat === c).reduce((a, b) => a + b.amount, 0) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+  const row = (b) => {
+    const cm = committed(b), left = b.amount - cm;
+    const qtyCell = editingLine === b.id
+      ? `<span style="display:inline-flex;gap:6px;align-items:center"><input class="tin" id="eq_${b.id}" type="number" min="0" value="${b.qty}"> × <input class="tin" id="eu_${b.id}" type="number" min="0" value="${b.unit}"></span>`
+      : `${num(b.qty)} ${esc(plural(b.unitLabel || 'unit', b.qty))} × ${num(b.unit)}`;
+    const act = !canEdit ? '' : editingLine === b.id
+      ? `<button class="btn sm" onclick="saveLine('${b.id}')">Save</button> <button class="btn sm ghost" onclick="editingLine=null;render()">Cancel</button>`
+      : `<button class="btn sm ghost" onclick="editingLine='${b.id}';render()">Edit</button>`;
+    return `<tr><td data-label="Item"><span><b>${esc(b.item)}</b><div class="muted" style="font-size:12px">${CAT_LABEL[b.cat]}</div></span></td>
+      <td data-label="Quantity × unit cost" class="r">${qtyCell}</td>
+      <td data-label="Budget (KES)" class="r"><b>${num(b.amount)}</b></td>
+      <td data-label="Committed" class="r">${num(cm)}</td>
+      <td data-label="Left" class="r" style="${left <= b.amount * 0.1 ? 'color:var(--red);font-weight:600' : ''}">${num(left)}</td>
+      <td data-label="Used" style="min-width:110px"><div class="bar" style="flex:1;max-width:160px;margin-top:5px"><i style="width:${pct(cm, b.amount)}%"></i></div></td>
+      <td data-label="" style="white-space:nowrap">${act}</td></tr>`;
+  };
+  return header('Budget', 'Plan the campaign budget item by item. Every payment request draws against one of these lines.') + `
+    <div class="grid g4">
+      ${stat('Total budget', kes(tot), `${lines.length} budget lines`)}
+      ${stat('Committed', kes(com), `${pct(com, tot)}% requested, approved or paid`)}
+      ${stat('Paid out', kes(paid), `${pct(paid, tot)}% of budget`)}
+      ${stat('Left to spend', kes(tot - com), 'not yet committed')}
+    </div>
+    ${canEdit ? `<form class="card inline" style="grid-template-columns:1.8fr 1.2fr 1.3fr .8fr .9fr 1fr auto;margin-top:14px" onsubmit="return addLine(this)" oninput="const f=this;f.querySelector('#nl_total').textContent='KES '+new Intl.NumberFormat('en-KE').format((+f.qty.value||0)*(+f.unit.value||0))">
+      <div class="f wide"><label>New budget item</label><input name="item" required placeholder="e.g. Branded umbrellas"></div>
+      <div class="f"><label>Category</label><select name="cat">${Object.entries(CAT_LABEL).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
+      <div class="f"><label>For</label><select name="ward"><option value="">Whole campaign</option>${S.wards.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="f"><label>Quantity</label><input name="qty" type="number" min="1" value="1" required></div>
+      <div class="f"><label>Unit</label><input name="unitLabel" placeholder="piece" value="piece"></div>
+      <div class="f"><label>Unit cost (KES)</label><input name="unit" type="number" min="0" required></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><span class="muted" style="font-size:11px" id="nl_total">KES 0</span><button class="btn">Add item</button></div>
+    </form>` : ''}
+    <div class="grid g2" style="margin-top:14px;align-items:start">
+      <div class="card"><h2 style="margin-top:0">By category</h2>
+        ${cats.map(x => progressRow(CAT_LABEL[x.c], `${kes(x.v)} · ${pct(x.v, tot)}%`, pct(x.v, cats[0].v))).join('') || '<p class="muted">No budget yet.</p>'}</div>
+      <div class="card"><h2 style="margin-top:0">By ${CFG.area.toLowerCase()}</h2>
+        ${groups.map(g => { const v = lines.filter(b => b.ward === g).reduce((a, b) => a + b.amount, 0); return `<div class="row"><span>${g ? esc(ward(g).name) : '<b>Campaign-wide</b>'}</span><b>${kes(v)}</b></div>`; }).join('')}</div>
+    </div>
+    ${groups.map(g => `<h2>${g ? esc(ward(g).name) : 'Campaign-wide'}</h2>
+      <div class="card tablecard"><table class="stack"><thead><tr><th>Item</th><th class="r">Quantity × unit cost</th><th class="r">Budget (KES)</th><th class="r">Committed</th><th class="r">Left</th><th>Used</th><th></th></tr></thead>
+      <tbody>${lines.filter(b => b.ward === g).map(row).join('')}</tbody></table></div>`).join('')}
+    <div class="rule">Only the candidate and finance lead change the budget. A line can't be cut below what's already committed. Every change is in the audit log.</div>`;
+};
+
+function addLine(form) {
+  const d = new FormData(form);
+  const qty = Math.max(1, Math.round(+d.get('qty'))), unit = Math.max(0, Math.round(+d.get('unit')));
+  if (!unit) return fail('Enter a unit cost');
+  const b = { id:'b' + Date.now(), ward:d.get('ward') || null, cat:d.get('cat'), item:d.get('item').trim(), qty, unitLabel:(d.get('unitLabel') || 'unit').trim(), unit, amount:qty * unit };
+  S.budgets.push(b);
+  log(`Added budget line "${b.item}" (${b.ward ? ward(b.ward).name : 'campaign-wide'}): ${num(qty)} × ${kes(unit)} = ${kes(b.amount)}`);
+  save(); render(); toast(`Added ${b.item}: ${kes(b.amount)}`); return false;
+}
+function saveLine(id) {
+  const b = S.budgets.find(x => x.id === id);
+  const qty = Math.max(0, Math.round(+document.getElementById('eq_' + id).value)), unit = Math.max(0, Math.round(+document.getElementById('eu_' + id).value));
+  const amount = qty * unit, cm = committed(b);
+  if (amount < cm) return fail(`${b.item} already has ${kes(cm)} committed. The budget can't go below that.`);
+  log(`Changed budget line "${b.item}": ${kes(b.amount)} → ${kes(amount)} (${num(qty)} × ${kes(unit)})`);
+  Object.assign(b, { qty, unit, amount }); editingLine = null;
+  save(); render(); toast('Budget line updated');
+}
+
+function tallyByArea(fs) {
+  const areas = [...new Set(fs.map(f => station(f.station).ward))].map(ward);
+  return `<h2>Polling stations by ${CFG.area.toLowerCase()} (${num(fs.length)})</h2>
+    <div class="card tablecard"><table class="stack"><thead><tr><th>${CFG.area}</th><th class="r">Stations</th><th class="r">Confirmed</th><th class="r">Being entered</th><th class="r">Differ</th>${S.cands.map(c => `<th class="r">${esc(c.name.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>
+    ${areas.map(w => {
+      const af = fs.filter(f => station(f.station).ward === w.id), conf = af.filter(f => f.status === 'confirmed');
+      return `<tr><td data-label="${CFG.area}"><b>${esc(w.name)}</b></td><td data-label="Stations" class="r">${af.length}</td><td data-label="Confirmed" class="r"><span>${conf.length} <span class="muted">(${pct(conf.length, af.length)}%)</span></span></td><td data-label="Being entered" class="r">${af.filter(f => f.status === 'awaiting').length}</td><td data-label="Differ" class="r">${af.filter(f => f.status === 'disputed').length}</td>${S.cands.map(c => `<td data-label="${esc(c.name)}" class="r">${num(conf.reduce((a, f) => a + f.final.votes[c.id], 0))}</td>`).join('')}</tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
 function form34(f) {
   const st = station(f.station);
   return `<div class="form34">
@@ -1005,6 +1121,8 @@ function requestMoney(form) {
   const d = new FormData(form);
   const amount = +d.get('amount');
   if (!(amount > 0)) return fail('Enter an amount');
+  const bl = S.budgets.find(x => x.id === d.get('budget')), left = bl.amount - committed(bl);
+  if (amount > left) return fail(`Only ${kes(left)} is left on "${bl.item}". Ask finance to increase the budget line first.`);
   const n = S.disb.length + 1;
   S.disb.push({ id:'d' + n, at:Date.now(), budget:d.get('budget'), payee:d.get('payee'), amount, purpose:d.get('purpose').trim(), status:'requested', by:S.me });
   log(`Requested D${n}: ${kes(amount)} for "${d.get('purpose').trim()}"`);
