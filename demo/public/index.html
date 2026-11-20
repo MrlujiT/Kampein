@@ -546,13 +546,8 @@ const VIEWS = {
   },
 
   wards() {
-    const canEdit = ['owner','manager'].includes(me().role);
     return header(`${CFG.areas} & polling stations`, `${SEAT === 'mca' ? esc(CFG.wardName) + ' ward\'s' : 'The'} ${num(S.stations.length)} polling stations, with registered voters from IEBC's 2022 register. Vote targets are set on the Targets page.`) +
-      (canEdit ? `<form class="card inline" style="grid-template-columns:2fr 1fr 1fr auto;margin-bottom:16px" onsubmit="return addWard(this)">
-        <div class="f wide"><label>New ${CFG.area.toLowerCase()}</label><input name="name" required placeholder="${CFG.area} name"></div>
-        <div class="f"><label>Registered voters</label><input name="reg" type="number" min="0" required></div>
-        <div class="f"><label>Our vote share %</label><input name="share" type="number" min="0" max="100" value="${Math.round(S.defaultShare * 100)}"></div>
-        <button class="btn">Add ${CFG.area.toLowerCase()}</button></form>` : '') +
+      `<div class="note">These come straight from IEBC's register, so they can't be added or removed here. If IEBC changes boundaries or polling stations before 2027, Kampein loads the new list.</div>` +
       visibleWards().map(w => {
         const sts = S.stations.filter(x => x.ward === w.id);
         const agents = S.members.filter(m => m.role === 'agent' && m.ward === w.id);
@@ -1169,11 +1164,6 @@ function disputeCard(f) {
 // ---------------------------------------------------------------------------
 // Actions (these mirror the rules the real database enforces)
 // ---------------------------------------------------------------------------
-function addWard(form) {
-  const d = new FormData(form);
-  S.wards.push({ id:'w' + Date.now(), name:d.get('name').trim(), reg:+d.get('reg'), share:Math.min(100, Math.max(0, +d.get('share'))) / 100, weekly:Math.round(+d.get('reg') * 0.035 / 50) * 50 });
-  save(); render(); toast('Ward added'); return false;
-}
 function addMember(form) {
   const d = new FormData(form);
   const role = d.get('role');
