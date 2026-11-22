@@ -144,6 +144,14 @@
   details[open] summary::after { content:'–'; }
   details p { margin:10px 0 0; color:var(--muted); }
   .wa { position:fixed; right:18px; bottom:18px; z-index:20; background:#1fa855; color:#fff; border-radius:30px; padding:12px 18px; font-weight:700; text-decoration:none; box-shadow:0 8px 24px rgba(0,0,0,.25); display:flex; gap:8px; align-items:center; }
+  .vision { background:linear-gradient(135deg, #0b3d2a, #14583d); color:#fff; text-align:center; }
+  .vision .eyebrow { display:inline-block; font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color:var(--gold); font-weight:700; margin-bottom:12px; }
+  .vision h2 { color:#fff; font-size:clamp(28px, 4.6vw, 44px); max-width:860px; margin:0 auto 14px; }
+  .vision h2 em { font-style:normal; color:var(--gold); }
+  .vision p { color:#cfe3d8; font-size:18px; max-width:720px; margin:0 auto; }
+  .steps3 { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin-top:26px; }
+  .steps3 span { border:1px solid rgba(255,255,255,.25); border-radius:20px; padding:8px 16px; font-weight:600; font-size:15px; }
+  .steps3 span.now { background:var(--gold); color:#1d1500; border-color:var(--gold); }
   .reserve { background:var(--mint); }
   .reserve .wrap { display:grid; grid-template-columns:1fr 1fr; gap:44px; align-items:start; }
   @media (max-width:900px) { .reserve .wrap { grid-template-columns:1fr; gap:24px; } }
@@ -328,6 +336,13 @@
   </div>
 </div></section>
 
+<section class="vision"><div class="wrap">
+  <div class="eyebrow">Our ambition</div>
+  <h2>To be the leading campaign tool in <em>sub-Saharan Africa</em>.</h2>
+  <p>We start at home, with Kenya's 2027 elections and every MCA, MP, Woman Rep, Senator and Governor campaign. Then we take the same tools to every country where county and constituency races are won on the ground.</p>
+  <div class="steps3"><span class="now">Kenya 2027</span><span>East Africa</span><span>Across sub-Saharan Africa</span></div>
+</div></section>
+
 <section class="reserve" id="reserve"><div class="wrap">
   <div>
     <h2>Reserve your campaign</h2>
@@ -366,7 +381,7 @@
 </div></section>
 
 <footer><div class="wrap">
-  <div><b style="color:#fff">Kampein</b> · Campaign management built for devolution · Nairobi</div>
+  <div><b style="color:#fff">Kampein</b> · Campaign management built for devolution · Nairobi · kampein.africa</div>
   <div>Non-partisan and independent. Not affiliated with IEBC or any political party. Voter data: IEBC register. <a href="/demo/">Live demo</a></div>
 </div></footer>
 
