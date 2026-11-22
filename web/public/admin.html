@@ -50,7 +50,7 @@
 </style>
 </head>
 <body>
-<header><div class="in"><div class="logo">Kamp<span>ei</span>n · admin</div><div class="tabs" id="tabs" hidden><button data-t="leads" class="on">Sign-ups</button><button data-t="partners">Partners</button><button data-t="investors">Investors</button><button id="logout">Log out</button></div></div></header>
+<header><div class="in"><div class="logo">Kamp<span>ei</span>n · admin</div><div class="tabs" id="tabs" hidden><button data-t="leads" class="on">Sign-ups</button><button data-t="partners">Partners</button><button data-t="investors">Investors</button><button data-t="backers">Backers</button><button id="logout">Log out</button></div></div></header>
 <main id="app">
   <form class="card login" id="login">
     <h2>Admin login</h2>
@@ -92,7 +92,7 @@ document.querySelectorAll('#tabs button[data-t]').forEach(b => b.onclick = () =>
 
 async function load() { DATA = await api('/api/admin/summary'); $('tabs').hidden = false; render(); }
 
-function render() { $('app').innerHTML = TAB === 'leads' ? leadsView() : TAB === 'investors' ? investorsView() : partnersView(); if (TAB === 'partners') drawQRs(); bind(); }
+function render() { $('app').innerHTML = TAB === 'leads' ? leadsView() : TAB === 'investors' ? investorsView() : TAB === 'backers' ? backersView() : partnersView(); if (TAB === 'partners') drawQRs(); bind(); }
 
 function leadsView() {
   const L = DATA.leads, won = L.filter(l => l.status === 'won');
@@ -192,10 +192,29 @@ function investorsView() {
     <p class="muted">Make one link per investor so you can see who opened it and switch off any single link. The links appear nowhere on the website and are hidden from Google.</p>
     <div class="filters"><input id="il" placeholder="Who is it for? e.g. Jane, Acme Capital" style="flex:1;min-width:220px"><button class="b" id="addI">Create link</button></div><p class="err" id="iErr"></p></div>
     ${I.length ? I.map(i => { const link = location.origin + '/i/' + i.token; return `<div class="card"><h2>${esc(i.label)} ${i.active ? '' : '<span class="pill s-lost">switched off</span>'}</h2>
+      ${i.interest ? `<p><span class="pill s-won">Interested: ${[...new Set(i.interest.split(','))].map(t => kes(+t)).join(', ')}</span></p>` : ''}
       <p class="muted">Opened ${i.views} time${i.views === 1 ? '' : 's'}${i.last_view ? ', last on ' + esc(new Date(i.last_view.replace(' ', 'T') + 'Z').toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' })) : ''}</p>
       <span class="copy">${esc(link)}</span>
       <div class="actions"><a href="${esc(link)}" target="_blank" rel="noopener">Open</a><a href="#" data-copy="${esc(link)}">Copy link</a><a href="https://wa.me/?text=${encodeURIComponent('Here is the Kampein investor brief. It is private, please do not forward it: ' + link)}" target="_blank" rel="noopener">Share on WhatsApp</a>
         <a href="#" data-ioff="${i.id}" data-active="${i.active ? 0 : 1}">${i.active ? 'Switch off' : 'Switch on'}</a><a href="#" data-inew="${i.id}">Replace with a new link</a></div></div>`; }).join('') : ''}`;
+}
+const TICKETS = [['Seed', 2500000, 0.02], ['Growth', 10000000, 0.085], ['Anchor', 20000000, 0.18]];
+function backersView() {
+  const B = DATA.backers || [];
+  const raised = B.reduce((a, b) => a + b.ticket, 0), shareOut = B.filter(b => b.active).reduce((a, b) => a + b.share, 0);
+  return `<div class="kpis"><div class="kpi"><b>${B.length}</b><span>backers</span></div><div class="kpi"><b>${kes(raised)}</b><span>raised</span></div>
+      <div class="kpi"><b>${(shareOut * 100).toFixed(1)}%</b><span>of revenue promised to backers</span></div><div class="kpi"><b>${kes(B.reduce((a, b) => a + b.due, 0))}</b><span>due to backers now</span></div></div>
+    <div class="card"><h2>Add a backer (after their money arrives)</h2>
+      <div class="filters"><select id="bt">${TICKETS.map(t => `<option value="${t[1]}" data-share="${t[2]}">${t[0]}: ${kes(t[1])} for ${(t[2] * 100).toFixed(1)}%</option>`).join('')}<option value="custom">Custom terms</option></select></div>
+      <div class="filters"><input id="bn" placeholder="Name" style="flex:1;min-width:180px"><input id="bph" placeholder="Phone (optional)" style="width:160px"><input id="bref" placeholder="M-Pesa or bank ref" style="width:170px"></div>
+      <div class="filters" id="bcustom" hidden><input id="bamt" type="number" placeholder="Amount (KES)" style="width:150px"><input id="bsh" type="number" step="0.1" placeholder="Share %" style="width:110px"><input id="bcap" type="number" step="0.5" value="3" style="width:90px" title="Cap multiple"><span class="muted" style="align-self:center">× cap</span></div>
+      <button class="b" id="addB">Add backer</button><p class="err" id="bErr"></p>
+      <p class="muted">Their earnings count every payment Kampein records from today, at their share, until they reach the cap. Only add a backer once the revenue-share agreement is signed and the money has arrived.</p></div>
+    ${B.map(b => { const link = location.origin + '/b/' + b.token; return `<div class="card"><h2>${esc(b.name)} ${b.active ? '' : '<span class="pill s-lost">paused</span>'}</h2>
+      <div class="kpis" style="grid-template-columns:repeat(5, 1fr)"><div class="kpi"><b>${kes(b.ticket)}</b><span>ticket · ${(b.share * 100).toFixed(1)}%</span></div><div class="kpi"><b>${kes(b.earned)}</b><span>earned</span></div><div class="kpi"><b>${kes(b.paid)}</b><span>paid out</span></div><div class="kpi"><b>${kes(b.due)}</b><span>due now</span></div><div class="kpi"><b>${kes(b.cap)}</b><span>${b.cap_multiple}× cap</span></div></div>
+      <span class="muted">Their private dashboard</span><span class="copy">${esc(link)}</span>
+      <div class="filters"><input id="po${b.id}" type="number" placeholder="Payout amount" style="width:150px"><input id="por${b.id}" placeholder="Ref" style="width:150px"><button class="b" data-payout="${b.id}">Record payout</button></div>
+      <div class="actions">${b.phone ? `<a href="https://wa.me/${b.phone}?text=${encodeURIComponent('Hi ' + b.name.split(' ')[0] + ', here is your private Kampein backer dashboard. It shows our revenue, your earnings and payouts, live: ' + link)}" target="_blank" rel="noopener">Send dashboard on WhatsApp</a>` : ''}<a href="#" data-copy="${esc(link)}">Copy link</a><a href="#" data-bnew="${b.id}">Reset link</a></div></div>`; }).join('')}`;
 }
 function drawQRs() {
   document.querySelectorAll('canvas[data-qr]').forEach(cv => {
@@ -219,6 +238,15 @@ function bind() {
   on('[data-status]', 'change', async e => { try { await api('/api/admin/leads/' + e.target.dataset.status, { method:'PATCH', body: JSON.stringify({ status: e.target.value }) }); await load(); toast('Status saved'); } catch (err) { alert(err.message); } });
   on('[data-savenotes]', 'click', async e => { const id = e.target.dataset.savenotes; try { await api('/api/admin/leads/' + id, { method:'PATCH', body: JSON.stringify({ notes: document.querySelector(`[data-notes="${id}"]`).value }) }); await load(); toast('Notes saved'); } catch (err) { alert(err.message); } });
   on('[data-pay]', 'click', async e => { const id = e.target.dataset.pay; try { await api(`/api/admin/leads/${id}/payments`, { method:'POST', body: JSON.stringify({ kind: $('pk' + id).value, amount: $('pa' + id).value, mpesa_ref: $('pr' + id).value }) }); await load(); toast('Payment recorded'); } catch (err) { alert(err.message); } });
+  if ($('bt')) $('bt').onchange = () => { $('bcustom').hidden = $('bt').value !== 'custom'; };
+  if ($('addB')) $('addB').onclick = async () => {
+    const custom = $('bt').value === 'custom', opt = $('bt').selectedOptions[0];
+    const body = { name: $('bn').value, phone: $('bph').value, mpesa_ref: $('bref').value,
+      ticket: custom ? +$('bamt').value : +$('bt').value, share: custom ? +$('bsh').value / 100 : +opt.dataset.share, cap_multiple: custom ? +$('bcap').value : 3 };
+    try { await api('/api/admin/backers', { method:'POST', body: JSON.stringify(body) }); await load(); toast('Backer added'); } catch (err) { $('bErr').textContent = err.message; }
+  };
+  on('[data-payout]', 'click', async e => { const id = e.target.dataset.payout; try { await api(`/api/admin/backers/${id}/payouts`, { method:'POST', body: JSON.stringify({ amount: $('po' + id).value, ref: $('por' + id).value }) }); await load(); toast('Payout recorded'); } catch (err) { alert(err.message); } });
+  on('[data-bnew]', 'click', async e => { e.preventDefault(); if (!confirm('The old link will stop working. Continue?')) return; await api('/api/admin/backers/' + e.target.dataset.bnew, { method:'PATCH', body: JSON.stringify({ newToken: true }) }); await load(); toast('New link made'); });
   if ($('addI')) $('addI').onclick = async () => { try { await api('/api/admin/investors', { method:'POST', body: JSON.stringify({ label: $('il').value }) }); await load(); toast('Link created'); } catch (err) { $('iErr').textContent = err.message; } };
   on('[data-copy]', 'click', e => { e.preventDefault(); navigator.clipboard.writeText(e.target.dataset.copy).then(() => toast('Link copied')); });
   on('[data-ioff]', 'click', async e => { e.preventDefault(); await api('/api/admin/investors/' + e.target.dataset.ioff, { method:'PATCH', body: JSON.stringify({ active: e.target.dataset.active === '1' }) }); await load(); });

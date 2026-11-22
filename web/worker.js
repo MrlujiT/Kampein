@@ -51,6 +51,28 @@ const SCHEMA = [
      views INTEGER NOT NULL DEFAULT 0,
      last_view TEXT,
      created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE TABLE IF NOT EXISTS investor_interest (
+     id INTEGER PRIMARY KEY,
+     link_id INTEGER NOT NULL,
+     ticket INTEGER NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE TABLE IF NOT EXISTS backers (
+     id INTEGER PRIMARY KEY,
+     name TEXT NOT NULL,
+     phone TEXT,
+     ticket INTEGER NOT NULL,
+     share REAL NOT NULL,
+     cap_multiple REAL NOT NULL DEFAULT 3,
+     mpesa_ref TEXT,
+     token TEXT UNIQUE NOT NULL,
+     active INTEGER NOT NULL DEFAULT 1,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE TABLE IF NOT EXISTS backer_payouts (
+     id INTEGER PRIMARY KEY,
+     backer_id INTEGER NOT NULL,
+     amount INTEGER NOT NULL,
+     ref TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
   `CREATE INDEX IF NOT EXISTS leads_partner ON leads(partner_code)`,
   `CREATE INDEX IF NOT EXISTS payments_lead ON payments(lead_id)`,
   `CREATE INDEX IF NOT EXISTS scans_partner ON scans(partner_code)`,
@@ -228,6 +250,79 @@ async function investorPage(env, token) {
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' } });
 }
 
+// ---------------------------------------------------------------- investor buy-in and backer dashboards
+
+// The three tickets on the investor dashboard: share of Kampein's gross revenue,
+// paid until the backer has received cap × their ticket.
+const TICKETS = { 2500000: 0.02, 10000000: 0.085, 20000000: 0.18 };
+
+async function recordInterest(req, env, token) {
+  const link = await env.DB.prepare('SELECT id FROM investor_links WHERE token = ? AND active = 1').bind(token).first();
+  if (!link) return fail('Not found', 404);
+  const b = await req.json().catch(() => ({}));
+  const ticket = Number(b.ticket);
+  if (!TICKETS[ticket]) return fail('Unknown ticket.');
+  await env.DB.prepare('INSERT INTO investor_interest (link_id, ticket) VALUES (?, ?)').bind(link.id, ticket).run();
+  return json({ ok: true });
+}
+
+// What a backer has earned: their share of revenue received since they invested, up to the cap
+async function backerStats(db, bk) {
+  const rev = await db.prepare('SELECT COALESCE(SUM(amount), 0) n FROM payments WHERE created_at >= ?').bind(bk.created_at).first();
+  const paid = await db.prepare('SELECT COALESCE(SUM(amount), 0) n FROM backer_payouts WHERE backer_id = ?').bind(bk.id).first();
+  const cap = Math.round(bk.ticket * bk.cap_multiple);
+  const earned = Math.min(Math.round(rev.n * bk.share), cap);
+  return { revenue: rev.n, earned, paid: paid.n, due: Math.max(0, earned - paid.n), cap };
+}
+
+async function backerData(env, token) {
+  const db = env.DB;
+  const bk = await db.prepare('SELECT * FROM backers WHERE token = ?').bind(token).first();
+  if (!bk) return fail('Not found', 404);
+  const [st, payouts] = await Promise.all([
+    backerStats(db, bk),
+    db.prepare('SELECT amount, ref, created_at FROM backer_payouts WHERE backer_id = ? ORDER BY created_at DESC').bind(bk.id).all(),
+  ]);
+  return json({ ok: true, backer: { name: bk.name, ticket: bk.ticket, share: bk.share, cap_multiple: bk.cap_multiple, since: bk.created_at, active: !!bk.active }, stats: st, payouts: payouts.results });
+}
+
+async function adminAddBacker(req, env) {
+  const b = await req.json().catch(() => ({}));
+  const name = clean(b.name, 80);
+  const ticket = Math.round(Number(b.ticket));
+  const share = Number(b.share);
+  const cap = Number(b.cap_multiple ?? 3);
+  if (name.length < 2) return fail('Enter the backer\'s name.');
+  if (!(ticket >= 100000)) return fail('Enter the amount invested in KES.');
+  if (!(share > 0 && share <= 0.5)) return fail('Revenue share must be between 0% and 50%.');
+  if (!(cap >= 1 && cap <= 10)) return fail('Cap must be between 1× and 10×.');
+  const phone = b.phone ? normPhone(b.phone) : null;
+  if (b.phone && !phone) return fail('Phone must be a Kenyan mobile number.');
+  await env.DB.prepare('INSERT INTO backers (name, phone, ticket, share, cap_multiple, mpesa_ref, token) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(name, phone, ticket, share, cap, clean(b.mpesa_ref, 30).toUpperCase() || null, randomToken(24)).run();
+  return json({ ok: true });
+}
+
+async function adminBackerPayout(req, env, id) {
+  const b = await req.json().catch(() => ({}));
+  const bk = await env.DB.prepare('SELECT id FROM backers WHERE id = ?').bind(id).first();
+  if (!bk) return fail('Not found', 404);
+  const amount = Math.round(Number(b.amount));
+  if (!Number.isFinite(amount) || amount === 0) return fail('Enter the amount paid out.');
+  await env.DB.prepare('INSERT INTO backer_payouts (backer_id, amount, ref) VALUES (?, ?, ?)').bind(id, amount, clean(b.ref, 30).toUpperCase() || null).run();
+  return json({ ok: true });
+}
+
+async function adminUpdateBacker(req, env, id) {
+  const b = await req.json().catch(() => ({}));
+  const bk = await env.DB.prepare('SELECT * FROM backers WHERE id = ?').bind(id).first();
+  if (!bk) return fail('Not found', 404);
+  const active = b.active === undefined ? bk.active : b.active ? 1 : 0;
+  const token = b.newToken ? randomToken(24) : bk.token;
+  await env.DB.prepare('UPDATE backers SET active = ?, token = ? WHERE id = ?').bind(active, token, id).run();
+  return json({ ok: true });
+}
+
 // ---------------------------------------------------------------- admin
 
 async function isAdmin(req, env) {
@@ -254,8 +349,12 @@ async function adminSummary(env) {
     };
   });
   const leadsOut = leads.results.map(({ ip_hash, ...l }) => ({ ...l, payments: payments.results.filter((x) => x.lead_id === l.id) }));
-  const investors = await db.prepare('SELECT * FROM investor_links ORDER BY created_at DESC').all();
-  return json({ ok: true, partners: ps, leads: leadsOut, investors: investors.results });
+  const investors = await db.prepare(`SELECT l.*, (SELECT GROUP_CONCAT(ticket) FROM investor_interest WHERE link_id = l.id) interest
+                                      FROM investor_links l ORDER BY l.created_at DESC`).all();
+  const bks = await db.prepare('SELECT * FROM backers ORDER BY created_at').all();
+  const backers = [];
+  for (const bk of bks.results) backers.push({ ...bk, ...(await backerStats(db, bk)) });
+  return json({ ok: true, partners: ps, leads: leadsOut, investors: investors.results, backers });
 }
 
 async function adminAddPartner(req, env) {
@@ -383,6 +482,7 @@ export default {
       if (!t || !env.DB) return notFound();
       try { await ensureSchema(env.DB); return await investorPage(env, t[1]); } catch (e) { console.error(e); return notFound(); }
     }
+    if (path.startsWith('/b/') && m === 'GET') return env.ASSETS.fetch(new Request(new URL('/backer', url), req));
     if (path.startsWith('/p/') && m === 'GET') return env.ASSETS.fetch(new Request(new URL('/partner', url), req));
     if (!path.startsWith('/api/') && !path.startsWith('/r/')) return env.ASSETS.fetch(req);
 
@@ -395,6 +495,8 @@ export default {
       if (path === '/api/partner-name' && m === 'GET') return partnerName(req, env);
       if (path === '/api/leads' && m === 'POST') return createLead(req, env);
       if ((r = path.match(/^\/api\/p\/([A-Za-z0-9_-]{10,40})$/)) && m === 'GET') return partnerData(env, r[1]);
+      if ((r = path.match(/^\/api\/b\/([A-Za-z0-9_-]{20,48})$/)) && m === 'GET') return backerData(env, r[1]);
+      if ((r = path.match(/^\/api\/i\/([A-Za-z0-9_-]{20,48})\/interest$/)) && m === 'POST') return recordInterest(req, env, r[1]);
 
       if (path.startsWith('/api/admin/')) {
         if (!env.ADMIN_KEY) return fail('Admin is not set up: add the ADMIN_KEY secret in Cloudflare.', 503);
@@ -404,6 +506,9 @@ export default {
         if (path === '/api/admin/partners' && m === 'POST') return adminAddPartner(req, env);
         if ((r = path.match(/^\/api\/admin\/partners\/(\d+)$/)) && m === 'PATCH') return adminUpdatePartner(req, env, Number(r[1]));
         if (path === '/api/admin/leads' && m === 'POST') return adminAddLead(req, env);
+        if (path === '/api/admin/backers' && m === 'POST') return adminAddBacker(req, env);
+        if ((r = path.match(/^\/api\/admin\/backers\/(\d+)\/payouts$/)) && m === 'POST') return adminBackerPayout(req, env, Number(r[1]));
+        if ((r = path.match(/^\/api\/admin\/backers\/(\d+)$/)) && m === 'PATCH') return adminUpdateBacker(req, env, Number(r[1]));
         if (path === '/api/admin/investors' && m === 'POST') return adminAddInvestorLink(req, env);
         if ((r = path.match(/^\/api\/admin\/investors\/(\d+)$/)) && m === 'PATCH') return adminUpdateInvestorLink(req, env, Number(r[1]));
         if ((r = path.match(/^\/api\/admin\/leads\/(\d+)$/)) && m === 'PATCH') return adminUpdateLead(req, env, Number(r[1]));

@@ -61,6 +61,23 @@
   .cols .c.on div { background:var(--leaf); }
   .cols .c b { font-size:13px; margin-bottom:6px; font-variant-numeric:tabular-nums; }
   .cols-l { display:flex; gap:14px; padding:6px 4px; } .cols-l span { flex:1; text-align:center; font-size:13px; color:var(--muted); }
+  .tickets { display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-top:8px; }
+  @media (max-width:860px) { .tickets { grid-template-columns:1fr; } }
+  .tk { border:1.5px solid var(--line); border-radius:16px; padding:20px; display:flex; flex-direction:column; background:#fff; position:relative; }
+  .tk.mid { border-color:var(--green); box-shadow:0 14px 34px rgba(11,61,42,.14); }
+  .tk .nm { font-size:13px; letter-spacing:.8px; text-transform:uppercase; color:var(--leaf); font-weight:800; }
+  .tk .amt { font-size:34px; font-weight:800; letter-spacing:-1px; margin:4px 0 2px; }
+  .tk .pct { font-size:18px; font-weight:700; color:#8a5a00; }
+  .tk .pct small { font-size:13px; color:var(--muted); font-weight:500; }
+  .tk table { margin:12px 0; font-size:13.5px; }
+  .tk td, .tk th { padding:6px 4px; }
+  .tk .be { font-size:13px; color:var(--muted); margin:0 0 14px; }
+  .tk button { margin-top:auto; font:inherit; font-weight:700; padding:12px; border-radius:10px; border:0; background:var(--green); color:#fff; cursor:pointer; }
+  .tk button.done { background:var(--mint); color:var(--green); }
+  .terms { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-top:16px; }
+  @media (max-width:760px) { .terms { grid-template-columns:1fr; } }
+  .terms div { background:var(--mint); border-radius:12px; padding:14px 16px; font-size:14px; color:#33443b; }
+  .terms b { display:block; color:var(--green); margin-bottom:2px; }
   .tl { position:relative; margin:30px 0 10px; height:150px; }
   .tl .axis { position:absolute; left:0; right:0; top:60px; height:4px; background:#dbe6e0; border-radius:2px; }
   .tl .seg { position:absolute; top:56px; height:12px; border-radius:6px; }
@@ -139,6 +156,19 @@
     </div>
   </section>
 
+
+  <section class="card" id="buyin">
+    <h2>Buy in: a share of Kampein's revenue</h2>
+    <p class="sub">Back Kampein for the 2027 cycle and earn a fixed share of every shilling campaigns pay us, until you have received three times your ticket. You can watch it add up on your own live dashboard.</p>
+    <div class="tickets" id="tickets"></div>
+    <div class="terms">
+      <div><b>Paid from gross revenue</b>Your share is taken from every payment Kampein receives from campaigns, before any costs, and paid out monthly by M-Pesa or bank.</div>
+      <div><b>Capped at 3×</b>Payments stop once you have received three times your ticket. If 2027 falls short, payments continue from later cycles until you reach it.</div>
+      <div><b>Your own dashboard</b>A private link shows Kampein's revenue since you joined, what you have earned, what has been paid to you and how close you are to the cap.</div>
+    </div>
+    <p class="src" style="margin-top:12px">Payouts at each scenario use the model above for one election cycle. This is an indicative offer, not a promise of returns: early-stage businesses can lose money, and final terms are set in a signed revenue-share agreement.</p>
+  </section>
+
   <section class="two">
     <div class="card"><h3>Prices, open to every aspirant (KES)</h3>
       <table><thead><tr><th>Seat</th><th class="n">Setup</th><th class="n">Monthly</th><th class="n">Election day</th></tr></thead><tbody>
@@ -202,7 +232,7 @@ const RATIO = 21863 / 16100;
 const asp = (s) => Math.round(s[3] * RATIO);
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString('en-KE');
-const kes = (n) => n >= 1e9 ? 'KES ' + (n / 1e9).toFixed(n >= 1e10 ? 1 : 2) + 'B' : n >= 1e6 ? 'KES ' + (n >= 1e8 ? Math.round(n / 1e6) : (n / 1e6).toFixed(1)) + 'M' : 'KES ' + fmt(n);
+const kes = (n) => n >= 1e9 ? 'KES ' + (n / 1e9).toFixed(n >= 1e10 ? 1 : 2) + 'B' : n >= 1e6 ? 'KES ' + (n >= 1e8 ? Math.round(n / 1e6) : (n / 1e6).toFixed(1).replace(/\.0$/, '')) + 'M' : 'KES ' + fmt(n);
 
 // Market: spend per seat
 const spendMax = Math.max(...SEATS.map(s => s[3] * s[4]));
@@ -241,6 +271,26 @@ function setShare(pct) {
 $('share').oninput = (e) => setShare(e.target.value);
 document.querySelectorAll('[data-p]').forEach(el => el.onclick = () => setShare(el.dataset.p));
 setShare(5);
+
+
+// Buy-in tickets: share of gross revenue, capped at 3x the ticket
+const TICKETS = [['Seed', 2.5e6, 0.02], ['Growth', 10e6, 0.085], ['Anchor', 20e6, 0.18]];
+const CAP = 3, WA = '254752684833';
+const tokenNow = location.pathname.split('/').filter(Boolean)[1] || '';
+$('tickets').innerHTML = TICKETS.map(([nm, amt, sh], i) => {
+  const rows = PRESETS.map(p => { const pay = Math.min(calc(p).rev * sh, amt * CAP); return `<tr><td>${p}% of aspirants</td><td class="n">${kes(pay)}</td><td class="n"><b>${(pay / amt).toFixed(1)}×</b></td></tr>`; }).join('');
+  return `<div class="tk ${i === 1 ? 'mid' : ''}"><div class="nm">${nm}</div><div class="amt">${kes(amt)}</div>
+    <div class="pct">${(sh * 100).toFixed(sh * 100 % 1 ? 1 : 0)}% <small>of Kampein's revenue, up to ${kes(amt * CAP)}</small></div>
+    <table><thead><tr><th>If we sign</th><th class="n">You receive</th><th class="n">Return</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="be">You get your money back once Kampein's revenue passes ${kes(amt / sh)}.</p>
+    <button data-ticket="${amt}">I'm interested in ${nm}</button></div>`;
+}).join('');
+document.querySelectorAll('[data-ticket]').forEach(b => b.onclick = async () => {
+  const t = +b.dataset.ticket, nm = TICKETS.find(x => x[1] === t)[0];
+  try { await fetch(`/api/i/${encodeURIComponent(tokenNow)}/interest`, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ ticket: t }) }); } catch {}
+  b.textContent = 'Thanks, opening WhatsApp…'; b.classList.add('done');
+  window.open('https://wa.me/' + WA + '?text=' + encodeURIComponent(`Hi Njau, I've looked at the Kampein investor brief and I'm interested in the ${nm} ticket (${kes(t)}). Let's talk.`), '_blank');
+});
 
 // Timeline
 const T0 = Date.parse('2026-11-01'), T1 = Date.parse('2027-09-15'), X = (d) => ((Date.parse(d) - T0) / (T1 - T0) * 100).toFixed(2) + '%';

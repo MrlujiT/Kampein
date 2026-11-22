@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Kampein · Backer dashboard</title>
+<style>
+  :root { --green:#0b3d2a; --leaf:#1f8a5b; --mint:#e8f4ee; --ink:#14201a; --muted:#5b6b63; --line:#dfe6e2; --gold:#e0a526; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:#f4f7f5; }
+  header { background:linear-gradient(150deg, #0b3d2a, #14583d); color:#fff; padding:24px 16px 64px; }
+  header .in, main { max-width:980px; margin:0 auto; }
+  .logo { font-weight:800; font-size:18px; } .logo span { color:var(--gold); }
+  h1 { margin:12px 0 4px; font-size:28px; letter-spacing:-.5px; }
+  header p { margin:0; color:#cfe3d8; }
+  main { padding:0 16px 60px; }
+  .kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin:-44px 0 18px; }
+  @media (max-width:760px) { .kpis { grid-template-columns:1fr 1fr; } }
+  .kpi { background:#fff; border-radius:12px; padding:16px; box-shadow:0 8px 22px rgba(11,61,42,.1); }
+  .kpi b { display:block; font-size:24px; color:var(--green); letter-spacing:-.5px; }
+  .kpi.gold b { color:#8a5a00; }
+  .kpi span { font-size:13px; color:var(--muted); }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:14px; }
+  h2 { font-size:18px; margin:0 0 10px; }
+  .bar { height:16px; background:#eef3f0; border-radius:8px; overflow:hidden; margin:10px 0 6px; }
+  .bar i { display:block; height:100%; background:linear-gradient(90deg, var(--leaf), var(--gold)); transition:width .8s; }
+  .muted { color:var(--muted); font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:9px 6px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  th { font-size:12px; text-transform:uppercase; color:var(--muted); letter-spacing:.3px; }
+  .n { text-align:right; }
+  .terms { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; } @media (max-width:640px) { .terms { grid-template-columns:1fr; } }
+  .terms div { background:var(--mint); border-radius:10px; padding:12px 14px; } .terms b { display:block; color:var(--green); font-size:18px; } .terms span { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header><div class="in"><div class="logo">Kamp<span>ei</span>n · backer</div><h1 id="title">Loading…</h1><p id="sub"></p></div></header>
+<main id="app"></main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const kes = (n) => 'KES ' + Math.round(n || 0).toLocaleString('en-KE');
+const day = (d) => new Date(String(d).replace(' ', 'T') + 'Z').toLocaleDateString('en-KE', { day:'numeric', month:'short', year:'numeric' });
+const token = location.pathname.split('/').filter(Boolean)[1] || '';
+async function load() {
+  const d = await fetch('/api/b/' + encodeURIComponent(token)).then(r => r.json()).catch(() => ({ ok:false }));
+  if (!d.ok) { $('title').textContent = 'Link not found'; $('app').innerHTML = '<div class="card" style="margin-top:-40px">This dashboard link is not valid. Ask the Kampein team for a new one.</div>'; return; }
+  const b = d.backer, s = d.stats, pct = Math.min(100, s.earned / s.cap * 100);
+  $('title').textContent = b.name;
+  $('sub').textContent = `Backer since ${day(b.since)} · ${kes(b.ticket)} for ${(b.share * 100).toFixed(1).replace(/\.0$/, '')}% of Kampein's revenue, up to ${b.cap_multiple}×`;
+  $('app').innerHTML = `
+    <div class="kpis"><div class="kpi"><b>${kes(s.revenue)}</b><span>Kampein revenue since you joined</span></div>
+      <div class="kpi gold"><b>${kes(s.earned)}</b><span>you have earned</span></div>
+      <div class="kpi"><b>${kes(s.paid)}</b><span>paid out to you</span></div>
+      <div class="kpi"><b>${kes(s.due)}</b><span>due at the next payout</span></div></div>
+    <div class="card"><h2>Progress to your ${b.cap_multiple}× cap</h2>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <p class="muted">${kes(s.earned)} of ${kes(s.cap)} (${pct.toFixed(1)}%). ${s.earned >= b.ticket ? 'You have your money back. Everything from here is return.' : `${kes(b.ticket - s.earned)} more until you have your money back.`}</p></div>
+    <div class="card"><h2>Your terms</h2><div class="terms">
+      <div><b>${kes(b.ticket)}</b><span>your ticket</span></div><div><b>${(b.share * 100).toFixed(1).replace(/\.0$/, '')}%</b><span>of every shilling campaigns pay Kampein</span></div><div><b>${kes(s.cap)}</b><span>the most you receive (${b.cap_multiple}×)</span></div></div></div>
+    <div class="card"><h2>Payouts to you</h2>${d.payouts.length ? `<table><thead><tr><th>Date</th><th>Reference</th><th class="n">Amount</th></tr></thead><tbody>${d.payouts.map(p => `<tr><td>${day(p.created_at)}</td><td>${esc(p.ref || '')}</td><td class="n">${kes(p.amount)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">No payouts yet. Payouts are made monthly once there is revenue to share.</p>'}</div>
+    <p class="muted">Figures update live from Kampein's records of payments received. This page is private to you.</p>`;
+}
+load(); setInterval(load, 60000);
+</script>
+</body>
+</html>
