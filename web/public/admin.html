@@ -10,7 +10,7 @@
   * { box-sizing:border-box; }
   body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:#f4f7f5; }
   header { background:var(--green); color:#fff; }
-  header .in { max-width:1200px; margin:0 auto; padding:0 16px; height:56px; display:flex; align-items:center; justify-content:space-between; }
+  header .in { max-width:1200px; margin:0 auto; padding:10px 16px; min-height:56px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; justify-content:space-between; }
   .logo { font-weight:800; font-size:20px; } .logo span { color:var(--gold); }
   .tabs button { background:none; border:0; color:#cfe3d8; font:inherit; padding:8px 12px; cursor:pointer; border-radius:8px; }
   .tabs button.on { background:rgba(255,255,255,.14); color:#fff; font-weight:600; }
@@ -63,6 +63,7 @@
 </main>
 <div class="toast" id="toast"></div>
 <script src="/assets/qrcode.js"></script>
+<script src="/assets/places.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -71,7 +72,7 @@ const SEATS = { mca:'MCA', mp:'MP', woman_rep:'Woman Rep', senator:'Senator', go
 const ROLES = { aspirant:'Aspirant', manager:'Campaign manager', team:'Campaign team', other:'Other' };
 const STATUSES = ['new', 'contacted', 'meeting', 'won', 'lost'];
 let KEY = sessionStorage.getItem('kp_admin') || '';
-let DATA = null, TAB = 'leads', OPEN = new Set(), F = { q:'', status:'', partner:'', seat:'' };
+let DATA = null, TAB = 'leads', OPEN = new Set(), F = { q:'', status:'', partner:'', seat:'' }, ADDING = false;
 
 function toast(t) { const el = $('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => el.style.display = 'none', 2200); }
 async function api(path, opts = {}) {
@@ -101,6 +102,7 @@ function leadsView() {
     && (!F.q || (l.name + ' ' + l.phone + ' ' + l.county_name + ' ' + l.cons_name + ' ' + l.ward_name).toLowerCase().includes(F.q.toLowerCase())));
   return `<div class="kpis"><div class="kpi"><b>${L.length}</b><span>sign-ups</span></div><div class="kpi"><b>${L.filter(l => l.status === 'new').length}</b><span>waiting for a call</span></div>
     <div class="kpi"><b>${won.length}</b><span>clients won</span></div><div class="kpi"><b>${kes(paid)}</b><span>received</span></div></div>
+  ${ADDING ? addForm() : '<button class="b" id="openAdd" style="margin-bottom:14px">+ Add a client</button>'}
   <div class="card"><div class="filters">
     <input id="fq" placeholder="Search name, phone, area" value="${esc(F.q)}">
     <select id="fs"><option value="">All statuses</option>${STATUSES.map(s => `<option ${F.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
@@ -109,6 +111,45 @@ function leadsView() {
     <button class="b light" id="csv">Download CSV</button><button class="b light" id="reload">Refresh</button>
   </div>
   ${rows.length ? rows.map(leadRow).join('') : '<p class="muted">No sign-ups yet.</p>'}</div>`;
+}
+function addForm() {
+  return `<div class="card" id="addCard"><h2>Add a client</h2><p class="muted">For anyone who reached you by phone, in person or through a friend.</p>
+    <div class="grid2">
+      <div><label class="muted">Full name</label><br><input id="an" style="width:100%"></div>
+      <div><label class="muted">Phone (M-Pesa number)</label><br><input id="aph" type="tel" placeholder="0712 345 678" style="width:100%"></div>
+      <div><label class="muted">Seat</label><br><select id="aseat" style="width:100%">${Object.entries(SEATS).map(([k, v]) => `<option value="${k}" ${k === 'mp' ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+      <div><label class="muted">They are</label><br><select id="arole" style="width:100%">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+      <div><label class="muted">County</label><br><select id="acounty" style="width:100%"></select></div>
+      <div id="aconsW"><label class="muted">Constituency</label><br><select id="acons" style="width:100%"></select></div>
+      <div id="awardW"><label class="muted">Ward</label><br><select id="award" style="width:100%"></select></div>
+      <div><label class="muted">Referred by</label><br><select id="apartner" style="width:100%"><option value="">Nobody (direct)</option>${DATA.partners.map(p => `<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div><label class="muted">Status</label><br><select id="astatus" style="width:100%">${STATUSES.map(s => `<option ${s === 'contacted' ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+    </div>
+    <p class="muted" style="margin:12px 0 4px">Notes</p><textarea id="anotes" placeholder="e.g. Muchiri's friend, pilot terms: 50% off setup"></textarea>
+    <div style="margin-top:10px"><button class="b" id="saveAdd">Save client</button> <button class="b light" id="cancelAdd">Cancel</button></div><p class="err" id="aErr"></p></div>`;
+}
+function wireAddForm() {
+  const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; };
+  const fill = (sel, items, ph) => { sel.innerHTML = ''; sel.append(opt('', ph)); items.slice().sort((a, b) => a[1].localeCompare(b[1])).forEach(i => sel.append(opt(i[0], i[1]))); };
+  const county = () => PLACES.find(c => c[0] === +$('acounty').value);
+  const cons = () => (county() || [, , []])[2].find(k => k[0] === +$('acons').value);
+  const vis = () => { const s = $('aseat').value; $('aconsW').hidden = !(s === 'mp' || s === 'mca'); $('awardW').hidden = s !== 'mca'; };
+  fill($('acounty'), PLACES, 'Choose county'); fill($('acons'), [], 'Choose county first'); fill($('award'), [], 'Choose constituency first');
+  $('acounty').onchange = () => { const c = county(); fill($('acons'), c ? c[2] : [], 'Choose constituency'); fill($('award'), [], 'Choose constituency first'); };
+  $('acons').onchange = () => { const k = cons(); fill($('award'), k ? k[2] : [], 'Choose ward'); };
+  $('aseat').onchange = vis; vis();
+  $('cancelAdd').onclick = () => { ADDING = false; render(); };
+  $('saveAdd').onclick = async () => {
+    const s = $('aseat').value, c = county(), k = cons(), w = k && k[2].find(x => x[0] === +$('award').value);
+    const useCons = s === 'mp' || s === 'mca';
+    try {
+      await api('/api/admin/leads', { method:'POST', body: JSON.stringify({
+        name: $('an').value, phone: $('aph').value, seat: s, role: $('arole').value, status: $('astatus').value, notes: $('anotes').value, partner_code: $('apartner').value,
+        county: c ? c[0] : null, county_name: c ? c[1] : '', cons: useCons && k ? k[0] : null, cons_name: useCons && k ? k[1] : '',
+        ward: s === 'mca' && w ? w[0] : null, ward_name: s === 'mca' && w ? w[1] : '' }) });
+      ADDING = false; await load(); toast('Client added');
+    } catch (err) { $('aErr').textContent = err.message; }
+  };
 }
 function leadRow(l) {
   const p = DATA.partners.find(x => x.code === l.partner_code);
@@ -166,6 +207,8 @@ function drawQRs() {
 }
 function bind() {
   const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  if ($('openAdd')) $('openAdd').onclick = () => { ADDING = true; render(); };
+  if ($('addCard')) wireAddForm();
   if ($('reload')) $('reload').onclick = () => load().then(() => toast('Updated'));
   if ($('csv')) $('csv').onclick = async () => {
     const r = await fetch('/api/admin/export.csv', { headers: { authorization:'Bearer ' + KEY } }); const b = await r.blob();

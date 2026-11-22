@@ -311,6 +311,37 @@ async function adminAddPayment(req, env, id) {
   return json({ ok: true });
 }
 
+// A sign-up you add yourself: a phone call, a walk-in, a referral from a friend
+async function adminAddLead(req, env) {
+  const b = await req.json().catch(() => ({}));
+  const name = clean(b.name, 80);
+  const phone = normPhone(b.phone);
+  const seat = SEATS[b.seat] ? b.seat : null;
+  const role = ROLES[b.role] ? b.role : 'aspirant';
+  const status = STATUSES.includes(b.status) ? b.status : 'new';
+  if (name.length < 3) return fail('Enter the full name.');
+  if (!phone) return fail('Enter a valid Kenyan mobile number.');
+  if (!seat) return fail('Choose the seat.');
+  const county = Number.isInteger(b.county) ? b.county : null;
+  const cons = Number.isInteger(b.cons) ? b.cons : null;
+  const ward = Number.isInteger(b.ward) ? b.ward : null;
+  if (!county) return fail('Choose the county.');
+  if ((seat === 'mp' || seat === 'mca') && !cons) return fail('Choose the constituency.');
+  if (seat === 'mca' && !ward) return fail('Choose the ward.');
+  let partner = null;
+  const code = clean(b.partner_code || '', 24).toLowerCase();
+  if (code) {
+    partner = await env.DB.prepare('SELECT * FROM partners WHERE code = ?').bind(code).first();
+    if (!partner) return fail('Unknown partner.');
+  }
+  const r = await env.DB.prepare(
+    `INSERT INTO leads (name, phone, role, seat, county, county_name, cons, cons_name, ward, ward_name, partner_code, partner_rate, status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(name, phone, role, seat, county, clean(b.county_name, 60), cons, clean(b.cons_name, 60), ward, clean(b.ward_name, 60),
+    partner ? partner.code : null, partner ? partner.rate : null, status, clean(b.notes, 2000) || 'Added from the admin dashboard').run();
+  return json({ ok: true, id: r.meta.last_row_id });
+}
+
 async function adminAddInvestorLink(req, env) {
   const b = await req.json().catch(() => ({}));
   const label = clean(b.label, 80);
@@ -372,6 +403,7 @@ export default {
         if (path === '/api/admin/export.csv' && m === 'GET') return adminExport(env);
         if (path === '/api/admin/partners' && m === 'POST') return adminAddPartner(req, env);
         if ((r = path.match(/^\/api\/admin\/partners\/(\d+)$/)) && m === 'PATCH') return adminUpdatePartner(req, env, Number(r[1]));
+        if (path === '/api/admin/leads' && m === 'POST') return adminAddLead(req, env);
         if (path === '/api/admin/investors' && m === 'POST') return adminAddInvestorLink(req, env);
         if ((r = path.match(/^\/api\/admin\/investors\/(\d+)$/)) && m === 'PATCH') return adminUpdateInvestorLink(req, env, Number(r[1]));
         if ((r = path.match(/^\/api\/admin\/leads\/(\d+)$/)) && m === 'PATCH') return adminUpdateLead(req, env, Number(r[1]));
