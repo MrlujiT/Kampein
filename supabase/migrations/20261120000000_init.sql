@@ -6,7 +6,7 @@
 --   * Money can only be paid to registered payees (staff, agents, vendors).
 --     There is no concept of a voter anywhere in this database.
 --   * The audit log is append-only.
---   * Election-day tallies need two independent entries per Form 34A.
+--   * Election-day tallies need two independent entries per polling-station results form (35A–39A, by seat).
 
 
 -- ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ create trigger disbursements_guard
   for each row execute function kp_disbursement_guard();
 
 -- ---------------------------------------------------------------------------
--- Election day: Form 34A double-entry tallying (internal to the campaign)
+-- Election day: results-form (35A–39A) double-entry tallying (internal to the campaign)
 -- ---------------------------------------------------------------------------
 
 create table tally_candidates (

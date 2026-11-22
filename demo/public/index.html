@@ -204,11 +204,11 @@
 // Five seats; the candidate picks the seat and the place (county / constituency / ward).
 // Registered voters, polling centres and stations come from IEBC's 2022 register, loaded per county.
 const SEATS = {
-  mca:       { seat:'MCA', title:'Member of County Assembly', team:'Team Wanjiru 2027', candidate:'Wanjiru Kamande', area:'Polling centre', areas:'Polling centres', county:false, scale:0.25, ref:20000 },
-  mp:        { seat:'MP', title:'Member of the National Assembly', team:'Team Amani 2027', candidate:'Amani Wekesa', area:'Ward', areas:'Wards', county:false, scale:1, ref:120000 },
-  woman_rep: { seat:'Woman Rep', title:'County Woman Member of the National Assembly', team:'Team Halima 2027', candidate:'Halima Abdi', area:'Constituency', areas:'Constituencies', county:true, scale:3, ref:1500000 },
-  senator:   { seat:'Senator', title:'Senator', team:'Team Otieno 2027', candidate:'Otieno Mwamba', area:'Constituency', areas:'Constituencies', county:true, scale:3.5, ref:1500000 },
-  governor:  { seat:'Governor', title:'County Governor', team:'Team Mutiso 2027', candidate:'Joseph Mutiso', area:'Constituency', areas:'Constituencies', county:true, scale:5, ref:1500000 },
+  mca:       { seat:'MCA', form:'36A', title:'Member of County Assembly', team:'Team Wanjiru 2027', candidate:'Wanjiru Kamande', area:'Polling centre', areas:'Polling centres', county:false, scale:0.25, ref:20000 },
+  mp:        { seat:'MP', form:'35A', title:'Member of the National Assembly', team:'Team Amani 2027', candidate:'Amani Wekesa', area:'Ward', areas:'Wards', county:false, scale:1, ref:120000 },
+  woman_rep: { seat:'Woman Rep', form:'39A', title:'County Woman Member of the National Assembly', team:'Team Halima 2027', candidate:'Halima Abdi', area:'Constituency', areas:'Constituencies', county:true, scale:3, ref:1500000 },
+  senator:   { seat:'Senator', form:'38A', title:'Senator', team:'Team Otieno 2027', candidate:'Otieno Mwamba', area:'Constituency', areas:'Constituencies', county:true, scale:3.5, ref:1500000 },
+  governor:  { seat:'Governor', form:'37A', title:'County Governor', team:'Team Mutiso 2027', candidate:'Joseph Mutiso', area:'Constituency', areas:'Constituencies', county:true, scale:5, ref:1500000 },
 };
 const DEFAULT_PLACE = { seat:'mp', county:47, cons:280, ward:1396 };
 let PLACE = { ...DEFAULT_PLACE };
@@ -339,7 +339,7 @@ function seed() {
   add({ budget:bw(0,'transport'), payee:'pa0_1', amount:3500, purpose:`Fare for ${A(0)} agents, Saturday`, status:'requested', by:'c0' });
   add({ budget:bw(2,'agent_stipends'), payee:`pa${wx(2)}_0`, amount:4500, purpose:`Weekly stipend, ${A(2)} agent`, status:'requested', by:`c${wx(2)}` });
 
-  // Election day: Form 34A per polling station, in a shuffled order so every area has some of each status
+  // Election day: one results form (35A for MP, 36A for MCA...) per polling station, in a shuffled order so every area has some of each status
   const cands = [
     { id:'k1', name:CFG.candidate, party:'Independent', ours:true },
     { id:'k2', name:'Candidate B', party:'Party B', ours:false },
@@ -683,7 +683,7 @@ const VIEWS = {
     const reported = S.forms.filter(f => f.status === 'confirmed');
     const totals = Object.fromEntries(S.cands.map(c => [c.id, reported.reduce((s, f) => s + (f.final.votes[c.id] || 0), 0)]));
     const valid = Object.values(totals).reduce((a, b) => a + b, 0);
-    const banner = `<div class="note warn">This is the campaign's internal tally, built from Form 34A photos sent by our agents. It is not a result. IEBC alone declares results.</div>`;
+    const banner = `<div class="note warn">This is the campaign's internal tally, built from Form ${CFG.form} photos sent by our agents. It is not a result. IEBC alone declares results.</div>`;
 
     if (role === 'clerk') {
       const queue = S.forms.filter(f => f.status === 'awaiting' && !f.entries.some(e => e.by === S.me));
@@ -1149,7 +1149,7 @@ VIEWS.setup = function () {
 // Telegram bot (simulated): how field agents report without installing an app
 // ---------------------------------------------------------------------------
 let TG = { agent:null, step:null, data:{} };
-const TG_MENU = [['📝 Log activity', 'log'], ["📋 Today's tasks", 'tasks'], ['📸 Send Form 34A', 'f34'], ['📊 My week', 'week']];
+const tgMenu = () => [['📝 Log activity', 'log'], ["📋 Today's tasks", 'tasks'], [`📸 Send Form ${CFG.form}`, 'f34'], ['📊 My week', 'week']];
 const tgAgents = () => S.members.filter(m => m.role === 'agent' && (me().role !== 'coordinator' || m.ward === myWard()));
 function tgChat(id) { S.tgChats = S.tgChats || {}; return (S.tgChats[id] = S.tgChats[id] || []); }
 function tgBot(id, t, k) { tgChat(id).push({ b:1, t, k:k || null, at:Date.now() }); }
@@ -1163,7 +1163,7 @@ function tgPress(action, label) {
   if (label) tgMe(m.id, label);
   const area = ward(m.ward);
   const [cmd, arg] = action.split(':');
-  if (cmd === 'menu') tgBot(m.id, 'What would you like to do?', TG_MENU);
+  if (cmd === 'menu') tgBot(m.id, 'What would you like to do?', tgMenu());
   else if (cmd === 'log') { TG.step = 'kind'; tgBot(m.id, 'What did you do?', Object.entries(KIND_LABEL).filter(([k]) => k !== 'other').map(([k, l]) => [l, 'kind:' + k])); }
   else if (cmd === 'kind') { TG.data = { kind:arg }; TG.step = 'n'; tgBot(m.id, 'How many people did you reach? Tap one or type the number.', [['10', 'n:10'], ['25', 'n:25'], ['50', 'n:50'], ['100', 'n:100']]); }
   else if (cmd === 'n') { TG.data.n = Math.max(0, parseInt(arg, 10) || 0); TG.step = 'photo'; tgBot(m.id, 'Add a photo? It helps your coordinator verify the work.', [['📷 Attach photo', 'ph:1'], ['Skip', 'ph:0']]); }
@@ -1171,32 +1171,32 @@ function tgPress(action, label) {
     S.activities.unshift({ id:'x' + Date.now(), member:m.id, ward:m.ward, kind:TG.data.kind, reached:TG.data.n, notes:arg === '1' ? 'Photo attached (Telegram)' : '', at:Date.now(), source:'telegram' });
     const wk = tgWeek(m).reduce((a, x) => a + x.reached, 0);
     TG.step = null;
-    tgBot(m.id, `✅ Saved: ${KIND_LABEL[TG.data.kind]}, ${num(TG.data.n)} people, ${area.name}.\nThis week you've reached ${num(wk)} of your ${num(S.agentGoal)} goal${wk >= S.agentGoal ? ' 🎉' : ''}.`, TG_MENU);
+    tgBot(m.id, `✅ Saved: ${KIND_LABEL[TG.data.kind]}, ${num(TG.data.n)} people, ${area.name}.\nThis week you've reached ${num(wk)} of your ${num(S.agentGoal)} goal${wk >= S.agentGoal ? ' 🎉' : ''}.`, tgMenu());
   }
   else if (cmd === 'tasks') {
     const sts = S.stations.filter(x => x.ward === m.ward);
     const pick = (i) => sts.length ? sts[(i + m.id.length) % sts.length].centre : area.name;
-    tgBot(m.id, `Today's tasks from your coordinator:\n\n1. Door to door around ${pick(0)}: 40 households\n2. Recruit 2 more agents for ${pick(3)}\n3. Team check-in at 5:00 pm, ${area.name}\n\nLog each one with 📝 when it's done.`, TG_MENU);
+    tgBot(m.id, `Today's tasks from your coordinator:\n\n1. Door to door around ${pick(0)}: 40 households\n2. Recruit 2 more agents for ${pick(3)}\n3. Team check-in at 5:00 pm, ${area.name}\n\nLog each one with 📝 when it's done.`, tgMenu());
   }
   else if (cmd === 'f34') {
     const open = S.forms.filter(f => f.status === 'not_uploaded' && station(f.station).ward === m.ward);
-    if (!open.length) tgBot(m.id, `All Form 34As for ${area.name} are already in. Asante!`, TG_MENU);
+    if (!open.length) tgBot(m.id, `All Forms ${CFG.form} for ${area.name} are already in. Asante!`, tgMenu());
     else { TG.step = 'f34'; tgBot(m.id, 'Which polling station is this form from?', open.slice(0, 8).map(f => [station(f.station).name, 'st:' + f.id])); }
   }
-  else if (cmd === 'st') { TG.data = { fid:arg }; tgBot(m.id, 'Take a clear photo of the signed Form 34A: all the figures, the signatures and the presiding officer\'s stamp must be visible.', [['📷 Send photo', 'up']]); }
+  else if (cmd === 'st') { TG.data = { fid:arg }; tgBot(m.id, `Take a clear photo of the signed Form ${CFG.form}: all the figures, the signatures and the presiding officer's stamp must be visible.`, [['📷 Send photo', 'up']]); }
   else if (cmd === 'up') {
     const f = S.forms.find(x => x.id === TG.data.fid);
     chatPop(m); tgMe(m.id, '', f.id);
     f.status = 'awaiting'; f.uploadedBy = m.id; f.entries = [];
-    log(`Form 34A photo for ${station(f.station).name} received from ${m.name} via Telegram`);
+    log(`Form ${CFG.form} photo for ${station(f.station).name} received from ${m.name} via Telegram`);
     TG.step = null;
-    tgBot(m.id, `📥 Received. ${station(f.station).name} is now in the tallying centre queue. Two clerks will type it in separately; the tally updates when their entries match.`, TG_MENU);
-    toast('Form 34A is now waiting for the data clerks');
+    tgBot(m.id, `📥 Received. ${station(f.station).name} is now in the tallying centre queue. Two clerks will type it in separately; the tally updates when their entries match.`, tgMenu());
+    toast(`Form ${CFG.form} is now waiting for the data clerks`);
   }
   else if (cmd === 'week') {
     const acts = tgWeek(m), wk = acts.reduce((a, x) => a + x.reached, 0);
     const rank = tgAgents().length ? S.members.filter(x => x.role === 'agent').map(x => [x.id, tgWeek(x).reduce((a, y) => a + y.reached, 0)]).sort((a, b) => b[1] - a[1]).findIndex(x => x[0] === m.id) + 1 : 0;
-    tgBot(m.id, `📊 Your last 7 days\n• Activities logged: ${acts.length}\n• People reached: ${num(wk)} of ${num(S.agentGoal)}\n• Rank among agents: ${rank} of ${S.members.filter(x => x.role === 'agent').length}`, TG_MENU);
+    tgBot(m.id, `📊 Your last 7 days\n• Activities logged: ${acts.length}\n• People reached: ${num(wk)} of ${num(S.agentGoal)}\n• Rank among agents: ${rank} of ${S.members.filter(x => x.role === 'agent').length}`, tgMenu());
   }
   save(); render();
 }
@@ -1208,7 +1208,7 @@ function tgSend(e) {
   if (TG.step === 'n' && /^\d+$/.test(t)) { tgMe(m.id, t); TG.step = null; return tgPress('n:' + t), false; }
   tgMe(m.id, t);
   if (/^\/?(start|menu|help)$/i.test(t)) tgPress('menu');
-  else { tgBot(m.id, "Sorry, I didn't get that. Pick an option below.", TG_MENU); save(); render(); }
+  else { tgBot(m.id, "Sorry, I didn't get that. Pick an option below.", tgMenu()); save(); render(); }
   return false;
 }
 function tgPick(id) { TG = { agent:id, step:null, data:{} }; render(); }
@@ -1216,7 +1216,7 @@ function tgBroadcast(form) {
   const d = new FormData(form), text = d.get('msg').trim(); if (!text) return false;
   const aud = d.get('aud');
   const to = S.members.filter(m => m.role === 'agent' && (aud === 'all' ? (me().role !== 'coordinator' || m.ward === myWard()) : m.ward === aud));
-  to.forEach(m => tgBot(m.id, `📣 From ${me().name}:\n${text}`, TG_MENU));
+  to.forEach(m => tgBot(m.id, `📣 From ${me().name}:\n${text}`, tgMenu()));
   log(`Telegram broadcast to ${to.length} agents: "${text}"`);
   save(); render(); toast(`Sent to ${to.length} agents on Telegram`); return false;
 }
@@ -1226,7 +1226,7 @@ VIEWS.telegram = function () {
   if (!agents.length) return header('Telegram bot', '') + '<div class="empty">No agents yet.</div>';
   if (!agents.some(a => a.id === TG.agent)) TG = { agent:agents[0].id, step:null, data:{} };
   const m = member(TG.agent), area = ward(m.ward), chat = tgChat(m.id);
-  if (!chat.length) tgBot(m.id, `Habari ${tgFirst(m)}! 👋 I'm the Kampein bot for ${CFG.name}. You're registered as an agent in ${area.name}.\n\nUse the buttons below to report from the field.`, TG_MENU);
+  if (!chat.length) tgBot(m.id, `Habari ${tgFirst(m)}! 👋 I'm the Kampein bot for ${CFG.name}. You're registered as an agent in ${area.name}.\n\nUse the buttons below to report from the field.`, tgMenu());
   const lastBot = chat.map((x, i) => x.b && x.k ? i : -1).filter(i => i >= 0).pop();
   const msgs = chat.map((x, i) => {
     const kb = x.k ? `<div class="kb ${i === lastBot ? '' : 'old'}">${x.k.map(([l, a]) => `<button ${i === lastBot ? `onclick='tgPress(${JSON.stringify(a)}, ${JSON.stringify(l)})'` : 'disabled'}>${esc(l)}</button>`).join('')}</div>` : '';
@@ -1248,7 +1248,7 @@ VIEWS.telegram = function () {
         <div class="card"><h2 style="margin-top:0">What agents can do</h2>
           <div class="kv"><b>📝 Log activity</b><span class="muted">Door to door, meetings, rallies, recruitment, with people reached and an optional photo. It shows up instantly on Field activity, the leaderboard and the map.</span>
           <b>📋 Today's tasks</b><span class="muted">Their coordinator's plan for the day.</span>
-          <b>📸 Send Form 34A</b><span class="muted">On election day, the photo of the signed form from their polling station goes straight to the data clerks.</span>
+          <b>📸 Send Form ${CFG.form}</b><span class="muted">On election day, the photo of the signed form from their polling station goes straight to the data clerks.</span>
           <b>📊 My week</b><span class="muted">Their progress against the weekly goal and their rank.</span></div>
           <p class="muted" style="font-size:12px;margin-top:10px">Agents join by tapping a link sent to their phone number; Kampein matches it to their team record. No passwords.</p>
         </div>
@@ -1273,7 +1273,7 @@ function tallyByArea(fs) {
 function form34(f) {
   const st = station(f.station);
   return `<div class="form34">
-    <div class="t">FORM 34A</div>
+    <div class="t">FORM ${CFG.form}</div>
     <div style="text-align:center;font-size:11px;margin-bottom:10px">${esc(CFG.title)} · polling station results <i>(sample)</i></div>
     <div class="kv" style="font-size:11px;margin-bottom:8px"><span>Station:</span><span>${esc(st.code)} ${esc(st.name.toUpperCase())}</span>${CFG.county
       ? `<span>Constituency:</span><span>${esc(ward(st.ward).name.toUpperCase())}</span><span>County:</span><span>${esc(CFG.countyName.toUpperCase())}</span>`
@@ -1360,7 +1360,7 @@ function enterTally(form, fid) {
     if (same) { f.status = 'confirmed'; f.final = { votes:{...a.votes}, rej:a.rej }; msg = 'Both entries match. Station confirmed and added to the tally.'; }
     else { f.status = 'disputed'; msg = 'Entries differ. Sent to the campaign manager to check against the photo.'; }
   }
-  log(`Entered Form 34A for ${station(f.station).name}${f.status === 'confirmed' ? ' (confirmed)' : f.status === 'disputed' ? ' (entries differ)' : ''}`);
+  log(`Entered Form ${CFG.form} for ${station(f.station).name}${f.status === 'confirmed' ? ' (confirmed)' : f.status === 'disputed' ? ' (entries differ)' : ''}`);
   save(); render(); toast(msg, f.status === 'disputed'); return false;
 }
 function resolve(fid, idx) {

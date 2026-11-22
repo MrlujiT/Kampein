@@ -12,7 +12,7 @@ Non-partisan, sold per campaign. Each campaign's data is isolated from every oth
 | Field activity log and leaderboards | Built (phase 1) |
 | Budgets, disbursements to named staff/vendors, audit trail | Database done, screens next (phase 2) |
 | Telegram bot for field agents | Phase 3 |
-| Election day: Form 34A photos and double-entry tallying | Database done, screens in phase 4 |
+| Election day: results-form photos (35A for MP, 36A MCA, 37A Governor, 38A Senator, 39A Woman Rep) and double-entry tallying | Database done, screens in phase 4 |
 
 ## Stack
 
@@ -30,7 +30,7 @@ These are enforced in Postgres itself, so no screen or API call can get around t
 - After a disbursement is requested, its amount, payee and purpose cannot change. It can only move
   requested → approved/rejected → paid. Nobody approves their own request. "Paid" needs an M-Pesa or bank reference.
 - Disbursements and the audit log cannot be deleted or edited. Every change to team, money and tally tables is logged.
-- Each Form 34A needs two entries from two different clerks. If they match, the form is confirmed; if not, it is flagged
+- Each polling-station results form (35A–39A, by seat) needs two entries from two different clerks. If they match, the form is confirmed; if not, it is flagged
   as disputed for a manager to resolve. The tally is internal to the campaign: IEBC alone declares results.
 
 ## Setup
