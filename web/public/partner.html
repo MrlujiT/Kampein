@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Kampein · Partner dashboard</title>
+<style>
+  :root { --green:#0b3d2a; --leaf:#1f8a5b; --mint:#e8f4ee; --ink:#14201a; --muted:#5b6b63; --line:#dfe6e2; --gold:#e0a526; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:#f4f7f5; }
+  header { background:var(--green); color:#fff; padding:22px 16px 26px; }
+  header .in, main { max-width:980px; margin:0 auto; }
+  .logo { font-weight:800; font-size:18px; opacity:.9; } .logo span { color:var(--gold); }
+  h1 { margin:10px 0 4px; font-size:28px; letter-spacing:-.5px; }
+  header p { margin:0; color:#cfe3d8; }
+  main { padding:18px 16px 60px; }
+  .kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin:-36px 0 18px; }
+  @media (max-width:700px) { .kpis { grid-template-columns:1fr 1fr; } }
+  .kpi { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; box-shadow:0 6px 18px rgba(11,61,42,.08); }
+  .kpi b { display:block; font-size:24px; color:var(--green); }
+  .kpi.money b { color:#8a5a00; }
+  .kpi span { font-size:13px; color:var(--muted); }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .share { display:grid; grid-template-columns:180px 1fr; gap:18px; align-items:center; }
+  @media (max-width:560px) { .share { grid-template-columns:1fr; } }
+  canvas { width:180px; height:180px; border:1px solid var(--line); border-radius:8px; display:block; }
+  .copy { font-family:ui-monospace, Menlo, monospace; font-size:14px; background:#f4f7f5; padding:8px 10px; border-radius:6px; word-break:break-all; display:block; margin:6px 0 10px; }
+  button { font:inherit; font-weight:600; padding:9px 14px; border-radius:8px; border:0; background:var(--mint); color:var(--green); cursor:pointer; margin-right:6px; }
+  h2 { font-size:18px; margin:0 0 10px; }
+  .muted { color:var(--muted); font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:9px 6px; border-bottom:1px solid var(--line); }
+  th { font-size:12px; text-transform:uppercase; color:var(--muted); letter-spacing:.3px; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:12px; font-size:12px; font-weight:700; text-transform:uppercase; }
+  .s-new { background:#fff3d6; color:#8a5a00; } .s-contacted { background:#e6effc; color:#1d4f9a; } .s-meeting { background:#efe8fb; color:#5a3a9a; }
+  .s-won { background:#e1f3e8; color:#14653b; } .s-lost { background:#f1f1f1; color:#666; }
+  @media (max-width:640px) { table.stack thead { display:none; } table.stack tr { display:block; border-bottom:1px solid var(--line); padding:8px 0; } table.stack td { display:block; border:0; padding:2px 0; } }
+</style>
+</head>
+<body>
+<header><div class="in"><div class="logo">Kamp<span>ei</span>n · partner</div><h1 id="title">Loading…</h1><p id="subtitle"></p></div></header>
+<main id="app"></main>
+<script src="/assets/qrcode.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const kes = (n) => 'KES ' + Math.round(n || 0).toLocaleString('en-KE');
+const STATUS_WORDS = { new:'new', contacted:'contacted', meeting:'meeting', won:'client', lost:'not now' };
+const token = location.pathname.split('/').filter(Boolean)[1] || '';
+
+function drawQR(cv, text) {
+  const q = qrcode(0, 'M'); q.addData(text); q.make();
+  const n = q.getModuleCount(), quiet = 4, size = cv.width, cell = Math.floor(size / (n + quiet * 2)), off = Math.floor((size - cell * n) / 2);
+  const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size); ctx.fillStyle = '#0b3d2a';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) ctx.fillRect(off + c * cell, off + r * cell, cell, cell);
+}
+
+async function load() {
+  const r = await fetch('/api/p/' + encodeURIComponent(token));
+  const d = await r.json();
+  if (!d.ok) { $('title').textContent = 'Link not found'; $('app').innerHTML = '<div class="card">This dashboard link is not valid. Ask the Kampein team for a new one.</div>'; return; }
+  const p = d.partner, s = d.stats, link = location.origin + '/r/' + p.code;
+  $('title').textContent = p.name;
+  $('subtitle').textContent = `You earn ${Math.round(p.rate * 100)}% of everything the campaigns you refer pay Kampein in the 2027 cycle.`;
+  $('app').innerHTML = `
+    <div class="kpis"><div class="kpi"><b>${s.scans.toLocaleString()}</b><span>QR scans and link visits</span></div><div class="kpi"><b>${s.leads}</b><span>campaigns signed up</span></div>
+      <div class="kpi"><b>${s.won}</b><span>became clients</span></div><div class="kpi money"><b>${kes(s.commission)}</b><span>your commission so far</span></div></div>
+    ${p.active ? '' : '<div class="card"><b>Your link is paused.</b> New sign-ups are not being credited. Contact the Kampein team.</div>'}
+    <div class="card share"><canvas id="qr" width="800" height="800"></canvas>
+      <div><h2>Your link</h2><p class="muted">Everyone who scans this code or opens this link and reserves a campaign is credited to you.</p>
+        <span class="copy">${esc(link)}</span>
+        <button id="dl">Download QR</button><button id="cp">Copy link</button></div></div>
+    <div class="card"><h2>Campaigns you referred</h2>
+      ${d.leads.length ? `<table class="stack"><thead><tr><th>Date</th><th>Name</th><th>Seat and area</th><th>Status</th><th style="text-align:right">Your commission</th></tr></thead><tbody>
+        ${d.leads.map(l => `<tr><td>${esc(l.date.slice(0, 10))}</td><td>${esc(l.name)} <span class="muted">${esc(l.phone)}</span></td><td>${esc(l.seat)} · ${esc(l.area)}</td><td><span class="pill s-${esc(l.status)}">${esc(STATUS_WORDS[l.status] || l.status)}</span></td><td style="text-align:right">${l.commission ? kes(l.commission) : '–'}</td></tr>`).join('')}
+      </tbody></table>` : '<p class="muted">No sign-ups yet. Share your QR code and they will appear here as they come in.</p>'}
+      <p class="muted" style="margin-top:12px">Commission is calculated on payments Kampein has received. Phone numbers are partly hidden to protect the people who signed up.</p></div>`;
+  drawQR($('qr'), link);
+  $('dl').onclick = () => { const a = document.createElement('a'); a.href = $('qr').toDataURL('image/png'); a.download = `kampein-qr-${p.code}.png`; a.click(); };
+  $('cp').onclick = () => navigator.clipboard.writeText(link).then(() => { $('cp').textContent = 'Copied'; });
+}
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

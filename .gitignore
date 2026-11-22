@@ -7,3 +7,7 @@ out
 next-env.d.ts
 .DS_Store
 supabase/.temp
+
+# Cloudflare local secrets
+.dev.vars
+.wrangler/

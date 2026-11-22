@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Kampein · Admin</title>
+<style>
+  :root { --green:#0b3d2a; --leaf:#1f8a5b; --mint:#e8f4ee; --ink:#14201a; --muted:#5b6b63; --line:#dfe6e2; --red:#b3261e; --gold:#e0a526; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:#f4f7f5; }
+  header { background:var(--green); color:#fff; }
+  header .in { max-width:1200px; margin:0 auto; padding:0 16px; height:56px; display:flex; align-items:center; justify-content:space-between; }
+  .logo { font-weight:800; font-size:20px; } .logo span { color:var(--gold); }
+  .tabs button { background:none; border:0; color:#cfe3d8; font:inherit; padding:8px 12px; cursor:pointer; border-radius:8px; }
+  .tabs button.on { background:rgba(255,255,255,.14); color:#fff; font-weight:600; }
+  main { max-width:1200px; margin:0 auto; padding:20px 16px 60px; }
+  .kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:18px; }
+  @media (max-width:700px) { .kpis { grid-template-columns:1fr 1fr; } }
+  .kpi { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .kpi b { display:block; font-size:24px; color:var(--green); }
+  .kpi span { font-size:13px; color:var(--muted); }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  h2 { font-size:18px; margin:0 0 12px; }
+  .filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  input, select, textarea { font:inherit; padding:9px 10px; border:1.5px solid #cfd9d3; border-radius:8px; background:#fff; }
+  textarea { width:100%; min-height:60px; }
+  button.b { font:inherit; font-weight:600; padding:9px 14px; border-radius:8px; border:0; background:var(--green); color:#fff; cursor:pointer; }
+  button.b.light { background:var(--mint); color:var(--green); }
+  .lead { border-top:1px solid var(--line); padding:12px 0; }
+  .lead:first-child { border-top:0; }
+  .lead .top { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; cursor:pointer; }
+  .lead .who b { font-size:16px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:12px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
+  .s-new { background:#fff3d6; color:#8a5a00; } .s-contacted { background:#e6effc; color:#1d4f9a; } .s-meeting { background:#efe8fb; color:#5a3a9a; }
+  .s-won { background:#e1f3e8; color:#14653b; } .s-lost { background:#f1f1f1; color:#666; }
+  .via { background:var(--mint); color:var(--green); }
+  .more { margin-top:10px; display:none; } .lead.open .more { display:block; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; } @media (max-width:760px) { .grid2 { grid-template-columns:1fr; } }
+  .actions a { margin-right:12px; font-weight:600; color:var(--leaf); text-decoration:none; }
+  table { width:100%; border-collapse:collapse; font-size:14px; } td, th { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
+  .partner { display:grid; grid-template-columns:200px 1fr; gap:18px; } @media (max-width:640px) { .partner { grid-template-columns:1fr; } }
+  .qr canvas { width:200px; height:200px; display:block; border:1px solid var(--line); border-radius:8px; }
+  .copy { font-family:ui-monospace, Menlo, monospace; font-size:13px; background:#f4f7f5; padding:6px 8px; border-radius:6px; word-break:break-all; display:block; margin:4px 0 8px; }
+  .err { color:var(--red); font-size:14px; min-height:1em; }
+  .login { max-width:380px; margin:12vh auto; }
+  .login input { width:100%; margin:10px 0; }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--green); color:#fff; padding:10px 16px; border-radius:10px; display:none; }
+</style>
+</head>
+<body>
+<header><div class="in"><div class="logo">Kamp<span>ei</span>n · admin</div><div class="tabs" id="tabs" hidden><button data-t="leads" class="on">Sign-ups</button><button data-t="partners">Partners</button><button id="logout">Log out</button></div></div></header>
+<main id="app">
+  <form class="card login" id="login">
+    <h2>Admin login</h2>
+    <p class="muted">Enter the admin key you saved in Cloudflare as ADMIN_KEY.</p>
+    <input type="password" id="key" autocomplete="current-password" placeholder="Admin key">
+    <button class="b" style="width:100%">Log in</button>
+    <p class="err" id="loginErr"></p>
+  </form>
+</main>
+<div class="toast" id="toast"></div>
+<script src="/assets/qrcode.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const kes = (n) => 'KES ' + Math.round(n || 0).toLocaleString('en-KE');
+const SEATS = { mca:'MCA', mp:'MP', woman_rep:'Woman Rep', senator:'Senator', governor:'Governor' };
+const ROLES = { aspirant:'Aspirant', manager:'Campaign manager', team:'Campaign team', other:'Other' };
+const STATUSES = ['new', 'contacted', 'meeting', 'won', 'lost'];
+let KEY = sessionStorage.getItem('kp_admin') || '';
+let DATA = null, TAB = 'leads', OPEN = new Set(), F = { q:'', status:'', partner:'', seat:'' };
+
+function toast(t) { const el = $('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => el.style.display = 'none', 2200); }
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'content-type':'application/json', authorization:'Bearer ' + KEY, ...(opts.headers || {}) } });
+  const d = await r.json().catch(() => ({ ok:false, error:'Unexpected response' }));
+  if (r.status === 401) { if (sessionStorage.getItem('kp_admin')) logout(); throw new Error(d.error); }
+  if (!d.ok) throw new Error(d.error || 'Failed');
+  return d;
+}
+function logout() { KEY = ''; sessionStorage.removeItem('kp_admin'); location.reload(); }
+$('logout').onclick = logout;
+$('login').onsubmit = async (e) => {
+  e.preventDefault(); KEY = $('key').value.trim();
+  try { await load(); sessionStorage.setItem('kp_admin', KEY); } catch (err) { $('loginErr').textContent = err.message; }
+};
+document.querySelectorAll('#tabs button[data-t]').forEach(b => b.onclick = () => { TAB = b.dataset.t; document.querySelectorAll('#tabs button[data-t]').forEach(x => x.classList.toggle('on', x === b)); render(); });
+
+async function load() { DATA = await api('/api/admin/summary'); $('tabs').hidden = false; render(); }
+
+function render() { $('app').innerHTML = TAB === 'leads' ? leadsView() : partnersView(); if (TAB === 'partners') drawQRs(); bind(); }
+
+function leadsView() {
+  const L = DATA.leads, won = L.filter(l => l.status === 'won');
+  const paid = L.reduce((a, l) => a + l.paid, 0);
+  const rows = L.filter(l => (!F.status || l.status === F.status) && (!F.seat || l.seat === F.seat)
+    && (!F.partner || (F.partner === '-' ? !l.partner_code : l.partner_code === F.partner))
+    && (!F.q || (l.name + ' ' + l.phone + ' ' + l.county_name + ' ' + l.cons_name + ' ' + l.ward_name).toLowerCase().includes(F.q.toLowerCase())));
+  return `<div class="kpis"><div class="kpi"><b>${L.length}</b><span>sign-ups</span></div><div class="kpi"><b>${L.filter(l => l.status === 'new').length}</b><span>waiting for a call</span></div>
+    <div class="kpi"><b>${won.length}</b><span>clients won</span></div><div class="kpi"><b>${kes(paid)}</b><span>received</span></div></div>
+  <div class="card"><div class="filters">
+    <input id="fq" placeholder="Search name, phone, area" value="${esc(F.q)}">
+    <select id="fs"><option value="">All statuses</option>${STATUSES.map(s => `<option ${F.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+    <select id="fseat"><option value="">All seats</option>${Object.entries(SEATS).map(([k, v]) => `<option value="${k}" ${F.seat === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <select id="fp"><option value="">All sources</option><option value="-" ${F.partner === '-' ? 'selected' : ''}>Direct</option>${DATA.partners.map(p => `<option value="${esc(p.code)}" ${F.partner === p.code ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+    <button class="b light" id="csv">Download CSV</button><button class="b light" id="reload">Refresh</button>
+  </div>
+  ${rows.length ? rows.map(leadRow).join('') : '<p class="muted">No sign-ups yet.</p>'}</div>`;
+}
+function leadRow(l) {
+  const p = DATA.partners.find(x => x.code === l.partner_code);
+  const area = [l.ward_name, l.cons_name, l.county_name].filter(Boolean).join(', ');
+  const tel = '0' + String(l.phone).slice(3);
+  return `<div class="lead ${OPEN.has(l.id) ? 'open' : ''}" data-id="${l.id}">
+    <div class="top" data-toggle="${l.id}"><div class="who"><b>${esc(l.name)}</b> <span class="pill s-${l.status}">${l.status}</span> ${p ? `<span class="pill via">via ${esc(p.name)}</span>` : ''}
+      <div class="muted">${SEATS[l.seat]} · ${esc(area)} · ${ROLES[l.role] || ''}</div></div>
+      <div class="muted" style="text-align:right">${esc(new Date(l.created_at.replace(' ', 'T') + 'Z').toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' }))}<br>${l.paid ? kes(l.paid) + ' paid' : ''}</div></div>
+    <div class="more"><div class="actions" style="margin-bottom:10px"><a href="tel:${tel}">📞 Call ${tel}</a><a href="https://wa.me/${l.phone}" target="_blank" rel="noopener">WhatsApp</a></div>
+      <div class="grid2"><div>
+        <label class="muted">Status</label><br><select data-status="${l.id}">${STATUSES.map(s => `<option ${l.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+        <p class="muted" style="margin:12px 0 4px">Notes</p><textarea data-notes="${l.id}">${esc(l.notes || '')}</textarea>
+        <button class="b light" data-savenotes="${l.id}">Save notes</button></div>
+      <div><p class="muted" style="margin:0 0 4px">Payments (by M-Pesa)</p>
+        ${l.payments.length ? `<table>${l.payments.map(x => `<tr><td>${esc(x.created_at.slice(0, 10))}</td><td>${esc(x.kind)}</td><td>${esc(x.mpesa_ref || '')}</td><td style="text-align:right">${kes(x.amount)}</td></tr>`).join('')}</table>` : '<p class="muted">None yet.</p>'}
+        <div class="filters" style="margin-top:8px"><select id="pk${l.id}"><option value="setup">Setup</option><option value="monthly">Monthly</option><option value="election_day">Election day</option><option value="correction">Correction</option></select>
+          <input id="pa${l.id}" type="number" placeholder="Amount" style="width:110px"><input id="pr${l.id}" placeholder="M-Pesa ref" style="width:130px"><button class="b" data-pay="${l.id}">Record</button></div>
+        ${p ? `<p class="muted">${esc(p.name)} earns ${Math.round((l.partner_rate ?? p.rate) * 100)}% of what this client pays.</p>` : ''}</div></div></div></div>`;
+}
+
+function partnersView() {
+  const P = DATA.partners;
+  return `<div class="card"><h2>Add a partner</h2><div class="filters">
+      <input id="pn" placeholder="Name, e.g. Herman Manyora"><input id="pc" placeholder="Code, e.g. manyora" style="width:150px"><input id="pph" placeholder="Phone (optional)" style="width:150px">
+      <input id="prate" type="number" value="15" min="0" max="50" style="width:80px" title="Commission %"> <span class="muted" style="align-self:center">%</span><button class="b" id="addP">Add partner</button></div>
+      <p class="err" id="pErr"></p><p class="muted">The code becomes their link: ${esc(location.origin)}/r/<b>code</b>. Keep it short; it goes on screen as a QR code.</p></div>
+    ${P.map(p => { const link = location.origin + '/r/' + p.code, dash = location.origin + '/p/' + p.token; return `<div class="card partner">
+      <div class="qr"><canvas data-qr="${esc(link)}" width="800" height="800"></canvas><button class="b light" style="width:200px;margin-top:8px" data-dl="${esc(p.code)}">Download QR (PNG)</button></div>
+      <div><h2>${esc(p.name)} ${p.active ? '' : '<span class="pill s-lost">paused</span>'}</h2>
+        <div class="kpis" style="grid-template-columns:repeat(5, 1fr)"><div class="kpi"><b>${p.scans}</b><span>scans</span></div><div class="kpi"><b>${p.leads}</b><span>sign-ups</span></div><div class="kpi"><b>${p.won}</b><span>won</span></div><div class="kpi"><b>${kes(p.paid)}</b><span>paid by clients</span></div><div class="kpi"><b>${kes(p.commission)}</b><span>${Math.round(p.rate * 100)}% commission</span></div></div>
+        <span class="muted">QR link (for the show)</span><span class="copy">${esc(link)}</span>
+        <span class="muted">Their private dashboard (send only to ${esc(p.name)})</span><span class="copy">${esc(dash)}</span>
+        <div class="actions">${p.phone ? `<a href="https://wa.me/${p.phone}?text=${encodeURIComponent('Hi ' + p.name.split(' ')[0] + ', here is your Kampein partner dashboard. It shows everyone who signs up through your QR code and your commission: ' + dash)}" target="_blank" rel="noopener">Send dashboard on WhatsApp</a>` : ''}
+          <a href="#" data-pause="${p.id}" data-active="${p.active ? 0 : 1}">${p.active ? 'Pause partner' : 'Reactivate'}</a><a href="#" data-newtoken="${p.id}">Reset dashboard link</a></div></div></div>`; }).join('')}`;
+}
+function drawQRs() {
+  document.querySelectorAll('canvas[data-qr]').forEach(cv => {
+    const q = qrcode(0, 'M'); q.addData(cv.dataset.qr); q.make();
+    const n = q.getModuleCount(), quiet = 4, size = cv.width, cell = Math.floor(size / (n + quiet * 2)), off = Math.floor((size - cell * n) / 2);
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size); ctx.fillStyle = '#0b3d2a';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) ctx.fillRect(off + c * cell, off + r * cell, cell, cell);
+  });
+}
+function bind() {
+  const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener(ev, fn));
+  if ($('reload')) $('reload').onclick = () => load().then(() => toast('Updated'));
+  if ($('csv')) $('csv').onclick = async () => {
+    const r = await fetch('/api/admin/export.csv', { headers: { authorization:'Bearer ' + KEY } }); const b = await r.blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'kampein-signups.csv'; a.click();
+  };
+  [['fq', 'q', 'input'], ['fs', 'status', 'change'], ['fseat', 'seat', 'change'], ['fp', 'partner', 'change']].forEach(([id, k, ev]) => { if ($(id)) $(id).addEventListener(ev, () => { F[k] = $(id).value; render(); if (id === 'fq') { $('fq').focus(); $('fq').setSelectionRange(F.q.length, F.q.length); } }); });
+  on('[data-toggle]', 'click', e => { const id = +e.currentTarget.dataset.toggle; OPEN.has(id) ? OPEN.delete(id) : OPEN.add(id); e.currentTarget.parentElement.classList.toggle('open'); });
+  on('[data-status]', 'change', async e => { try { await api('/api/admin/leads/' + e.target.dataset.status, { method:'PATCH', body: JSON.stringify({ status: e.target.value }) }); await load(); toast('Status saved'); } catch (err) { alert(err.message); } });
+  on('[data-savenotes]', 'click', async e => { const id = e.target.dataset.savenotes; try { await api('/api/admin/leads/' + id, { method:'PATCH', body: JSON.stringify({ notes: document.querySelector(`[data-notes="${id}"]`).value }) }); await load(); toast('Notes saved'); } catch (err) { alert(err.message); } });
+  on('[data-pay]', 'click', async e => { const id = e.target.dataset.pay; try { await api(`/api/admin/leads/${id}/payments`, { method:'POST', body: JSON.stringify({ kind: $('pk' + id).value, amount: $('pa' + id).value, mpesa_ref: $('pr' + id).value }) }); await load(); toast('Payment recorded'); } catch (err) { alert(err.message); } });
+  if ($('addP')) $('addP').onclick = async () => { try { await api('/api/admin/partners', { method:'POST', body: JSON.stringify({ name: $('pn').value, code: $('pc').value, phone: $('pph').value, rate: +$('prate').value / 100 }) }); await load(); toast('Partner added'); } catch (err) { $('pErr').textContent = err.message; } };
+  on('[data-pause]', 'click', async e => { e.preventDefault(); await api('/api/admin/partners/' + e.target.dataset.pause, { method:'PATCH', body: JSON.stringify({ active: e.target.dataset.active === '1' }) }); await load(); });
+  on('[data-newtoken]', 'click', async e => { e.preventDefault(); if (!confirm('The old dashboard link will stop working. Continue?')) return; await api('/api/admin/partners/' + e.target.dataset.newtoken, { method:'PATCH', body: JSON.stringify({ newToken: true }) }); await load(); toast('New link made'); });
+  on('[data-dl]', 'click', e => { const cv = e.target.parentElement.querySelector('canvas'); const a = document.createElement('a'); a.href = cv.toDataURL('image/png'); a.download = `kampein-qr-${e.target.dataset.dl}.png`; a.click(); });
+}
+if (KEY) load().catch(() => {});
+</script>
+</body>
+</html>

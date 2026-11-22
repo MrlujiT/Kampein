@@ -1,11 +1,20 @@
 {
-  // Cloudflare Workers: until the real app goes live, a deploy from the repo root
-  // serves the static demo (demo/public). Same settings as demo/wrangler.jsonc.
+  // Cloudflare Workers: the Kampein website (landing page, sign-ups, partner QR links,
+  // admin and partner dashboards) plus the browser demo at /demo/.
+  // The D1 database "kampein" is created automatically on the first deploy.
+  // Admin access needs one secret, set in the Cloudflare dashboard: ADMIN_KEY.
   "name": "kampein",
+  "main": "web/worker.js",
   "compatibility_date": "2026-11-01",
   "workers_dev": true,
   "preview_urls": true,
   "assets": {
-    "directory": "./demo/public"
-  }
+    "directory": "./web/public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/r/*", "/p/*"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "kampein" }
+  ],
+  "observability": { "enabled": true }
 }
