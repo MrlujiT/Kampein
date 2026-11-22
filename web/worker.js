@@ -233,7 +233,7 @@ async function investorPage(env, token) {
 async function isAdmin(req, env) {
   const h = req.headers.get('authorization') || '';
   const key = h.startsWith('Bearer ') ? h.slice(7) : '';
-  return !!env.ADMIN_KEY && key.length > 0 && (await sameSecret(key, env.ADMIN_KEY));
+  return !!env.ADMIN_KEY && key.length > 0 && (await sameSecret(key.trim(), String(env.ADMIN_KEY).trim()));
 }
 
 async function adminSummary(env) {

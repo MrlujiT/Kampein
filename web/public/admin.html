@@ -55,7 +55,8 @@
   <form class="card login" id="login">
     <h2>Admin login</h2>
     <p class="muted">Enter the admin key you saved in Cloudflare as ADMIN_KEY.</p>
-    <input type="password" id="key" autocomplete="current-password" placeholder="Admin key">
+    <input type="password" id="key" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Admin key">
+    <label class="muted" style="display:flex;gap:8px;align-items:center;margin:-4px 0 10px"><input type="checkbox" style="width:auto;margin:0" onchange="document.getElementById('key').type=this.checked?'text':'password'"> Show what I typed</label>
     <button class="b" style="width:100%">Log in</button>
     <p class="err" id="loginErr"></p>
   </form>
