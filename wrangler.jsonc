@@ -11,8 +11,10 @@
   "assets": {
     "directory": "./web/public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/r/*", "/p/*"]
+    "run_worker_first": ["/api/*", "/r/*", "/p/*", "/i/*"]
   },
+  // web/investor.html is bundled into the worker as text, so it is never a public file
+  "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }],
   "d1_databases": [
     { "binding": "DB", "database_name": "kampein" }
   ],

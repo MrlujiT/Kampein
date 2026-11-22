@@ -3,6 +3,10 @@
 // Storage: Cloudflare D1, bound as DB. Tables are created on first use.
 // Admin access: the ADMIN_KEY secret, set in the Cloudflare dashboard (never in this file).
 
+// The investor dashboard is not a public file: it is bundled into the worker and only served
+// at /i/<token> for an active investor link created in the admin dashboard.
+import INVESTOR_HTML from './investor.html';
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS partners (
      id INTEGER PRIMARY KEY,
@@ -38,6 +42,14 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS scans (
      id INTEGER PRIMARY KEY,
      partner_code TEXT NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE TABLE IF NOT EXISTS investor_links (
+     id INTEGER PRIMARY KEY,
+     label TEXT NOT NULL,
+     token TEXT UNIQUE NOT NULL,
+     active INTEGER NOT NULL DEFAULT 1,
+     views INTEGER NOT NULL DEFAULT 0,
+     last_view TEXT,
      created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
   `CREATE INDEX IF NOT EXISTS leads_partner ON leads(partner_code)`,
   `CREATE INDEX IF NOT EXISTS payments_lead ON payments(lead_id)`,
@@ -194,6 +206,28 @@ async function partnerData(env, token) {
   });
 }
 
+// ---------------------------------------------------------------- investor dashboard
+
+const notFound = () => new Response('<!DOCTYPE html><meta name="robots" content="noindex"><title>Not found</title><p style="font:16px system-ui;padding:40px">Page not found.</p>',
+  { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'x-robots-tag': 'noindex' } });
+
+async function investorPage(env, token) {
+  const db = env.DB;
+  const link = await db.prepare('SELECT * FROM investor_links WHERE token = ? AND active = 1').bind(token).first();
+  if (!link) return notFound();
+  await db.prepare("UPDATE investor_links SET views = views + 1, last_view = datetime('now') WHERE id = ?").bind(link.id).run();
+  const [leads, won, partners, received, bySeat] = await Promise.all([
+    db.prepare('SELECT COUNT(*) n FROM leads').first(),
+    db.prepare("SELECT COUNT(*) n FROM leads WHERE status = 'won'").first(),
+    db.prepare('SELECT COUNT(*) n FROM partners WHERE active = 1').first(),
+    db.prepare('SELECT COALESCE(SUM(amount), 0) n FROM payments').first(),
+    db.prepare('SELECT seat, COUNT(*) n FROM leads GROUP BY seat').all(),
+  ]);
+  const live = { leads: leads.n, won: won.n, partners: partners.n, received: received.n, bySeat: bySeat.results };
+  const html = INVESTOR_HTML.replace('/*LIVE*/null', JSON.stringify(live).replace(/</g, '\\u003c'));
+  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' } });
+}
+
 // ---------------------------------------------------------------- admin
 
 async function isAdmin(req, env) {
@@ -220,7 +254,8 @@ async function adminSummary(env) {
     };
   });
   const leadsOut = leads.results.map(({ ip_hash, ...l }) => ({ ...l, payments: payments.results.filter((x) => x.lead_id === l.id) }));
-  return json({ ok: true, partners: ps, leads: leadsOut });
+  const investors = await db.prepare('SELECT * FROM investor_links ORDER BY created_at DESC').all();
+  return json({ ok: true, partners: ps, leads: leadsOut, investors: investors.results });
 }
 
 async function adminAddPartner(req, env) {
@@ -276,6 +311,24 @@ async function adminAddPayment(req, env, id) {
   return json({ ok: true });
 }
 
+async function adminAddInvestorLink(req, env) {
+  const b = await req.json().catch(() => ({}));
+  const label = clean(b.label, 80);
+  if (label.length < 2) return fail('Say who this link is for, e.g. "Jane, Acme Capital".');
+  await env.DB.prepare('INSERT INTO investor_links (label, token) VALUES (?, ?)').bind(label, randomToken(24)).run();
+  return json({ ok: true });
+}
+
+async function adminUpdateInvestorLink(req, env, id) {
+  const b = await req.json().catch(() => ({}));
+  const l = await env.DB.prepare('SELECT * FROM investor_links WHERE id = ?').bind(id).first();
+  if (!l) return fail('Not found', 404);
+  const active = b.active === undefined ? l.active : b.active ? 1 : 0;
+  const token = b.newToken ? randomToken(24) : l.token;
+  await env.DB.prepare('UPDATE investor_links SET active = ?, token = ? WHERE id = ?').bind(active, token, id).run();
+  return json({ ok: true });
+}
+
 async function adminExport(env) {
   const r = await env.DB.prepare(`SELECT l.id, l.created_at, l.name, l.phone, l.role, l.seat, l.county_name, l.cons_name, l.ward_name, l.partner_code, l.status, l.notes,
       COALESCE((SELECT SUM(amount) FROM payments WHERE lead_id = l.id), 0) paid FROM leads l ORDER BY l.created_at`).all();
@@ -294,6 +347,11 @@ export default {
     const m = req.method;
 
     // Static pages that don't touch the database
+    if (path.startsWith('/i/') && m === 'GET') {
+      const t = path.match(/^\/i\/([A-Za-z0-9_-]{20,48})\/?$/);
+      if (!t || !env.DB) return notFound();
+      try { await ensureSchema(env.DB); return await investorPage(env, t[1]); } catch (e) { console.error(e); return notFound(); }
+    }
     if (path.startsWith('/p/') && m === 'GET') return env.ASSETS.fetch(new Request(new URL('/partner', url), req));
     if (!path.startsWith('/api/') && !path.startsWith('/r/')) return env.ASSETS.fetch(req);
 
@@ -314,6 +372,8 @@ export default {
         if (path === '/api/admin/export.csv' && m === 'GET') return adminExport(env);
         if (path === '/api/admin/partners' && m === 'POST') return adminAddPartner(req, env);
         if ((r = path.match(/^\/api\/admin\/partners\/(\d+)$/)) && m === 'PATCH') return adminUpdatePartner(req, env, Number(r[1]));
+        if (path === '/api/admin/investors' && m === 'POST') return adminAddInvestorLink(req, env);
+        if ((r = path.match(/^\/api\/admin\/investors\/(\d+)$/)) && m === 'PATCH') return adminUpdateInvestorLink(req, env, Number(r[1]));
         if ((r = path.match(/^\/api\/admin\/leads\/(\d+)$/)) && m === 'PATCH') return adminUpdateLead(req, env, Number(r[1]));
         if ((r = path.match(/^\/api\/admin\/leads\/(\d+)\/payments$/)) && m === 'POST') return adminAddPayment(req, env, Number(r[1]));
       }

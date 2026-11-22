@@ -50,7 +50,7 @@
 </style>
 </head>
 <body>
-<header><div class="in"><div class="logo">Kamp<span>ei</span>n · admin</div><div class="tabs" id="tabs" hidden><button data-t="leads" class="on">Sign-ups</button><button data-t="partners">Partners</button><button id="logout">Log out</button></div></div></header>
+<header><div class="in"><div class="logo">Kamp<span>ei</span>n · admin</div><div class="tabs" id="tabs" hidden><button data-t="leads" class="on">Sign-ups</button><button data-t="partners">Partners</button><button data-t="investors">Investors</button><button id="logout">Log out</button></div></div></header>
 <main id="app">
   <form class="card login" id="login">
     <h2>Admin login</h2>
@@ -90,7 +90,7 @@ document.querySelectorAll('#tabs button[data-t]').forEach(b => b.onclick = () =>
 
 async function load() { DATA = await api('/api/admin/summary'); $('tabs').hidden = false; render(); }
 
-function render() { $('app').innerHTML = TAB === 'leads' ? leadsView() : partnersView(); if (TAB === 'partners') drawQRs(); bind(); }
+function render() { $('app').innerHTML = TAB === 'leads' ? leadsView() : TAB === 'investors' ? investorsView() : partnersView(); if (TAB === 'partners') drawQRs(); bind(); }
 
 function leadsView() {
   const L = DATA.leads, won = L.filter(l => l.status === 'won');
@@ -144,6 +144,17 @@ function partnersView() {
         <div class="actions">${p.phone ? `<a href="https://wa.me/${p.phone}?text=${encodeURIComponent('Hi ' + p.name.split(' ')[0] + ', here is your Kampein partner dashboard. It shows everyone who signs up through your QR code and your commission: ' + dash)}" target="_blank" rel="noopener">Send dashboard on WhatsApp</a>` : ''}
           <a href="#" data-pause="${p.id}" data-active="${p.active ? 0 : 1}">${p.active ? 'Pause partner' : 'Reactivate'}</a><a href="#" data-newtoken="${p.id}">Reset dashboard link</a></div></div></div>`; }).join('')}`;
 }
+function investorsView() {
+  const I = DATA.investors || [];
+  return `<div class="card"><h2>Investor dashboard links</h2>
+    <p class="muted">Make one link per investor so you can see who opened it and switch off any single link. The links appear nowhere on the website and are hidden from Google.</p>
+    <div class="filters"><input id="il" placeholder="Who is it for? e.g. Jane, Acme Capital" style="flex:1;min-width:220px"><button class="b" id="addI">Create link</button></div><p class="err" id="iErr"></p></div>
+    ${I.length ? I.map(i => { const link = location.origin + '/i/' + i.token; return `<div class="card"><h2>${esc(i.label)} ${i.active ? '' : '<span class="pill s-lost">switched off</span>'}</h2>
+      <p class="muted">Opened ${i.views} time${i.views === 1 ? '' : 's'}${i.last_view ? ', last on ' + esc(new Date(i.last_view.replace(' ', 'T') + 'Z').toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' })) : ''}</p>
+      <span class="copy">${esc(link)}</span>
+      <div class="actions"><a href="${esc(link)}" target="_blank" rel="noopener">Open</a><a href="#" data-copy="${esc(link)}">Copy link</a><a href="https://wa.me/?text=${encodeURIComponent('Here is the Kampein investor brief. It is private, please do not forward it: ' + link)}" target="_blank" rel="noopener">Share on WhatsApp</a>
+        <a href="#" data-ioff="${i.id}" data-active="${i.active ? 0 : 1}">${i.active ? 'Switch off' : 'Switch on'}</a><a href="#" data-inew="${i.id}">Replace with a new link</a></div></div>`; }).join('') : ''}`;
+}
 function drawQRs() {
   document.querySelectorAll('canvas[data-qr]').forEach(cv => {
     const q = qrcode(0, 'M'); q.addData(cv.dataset.qr); q.make();
@@ -164,6 +175,10 @@ function bind() {
   on('[data-status]', 'change', async e => { try { await api('/api/admin/leads/' + e.target.dataset.status, { method:'PATCH', body: JSON.stringify({ status: e.target.value }) }); await load(); toast('Status saved'); } catch (err) { alert(err.message); } });
   on('[data-savenotes]', 'click', async e => { const id = e.target.dataset.savenotes; try { await api('/api/admin/leads/' + id, { method:'PATCH', body: JSON.stringify({ notes: document.querySelector(`[data-notes="${id}"]`).value }) }); await load(); toast('Notes saved'); } catch (err) { alert(err.message); } });
   on('[data-pay]', 'click', async e => { const id = e.target.dataset.pay; try { await api(`/api/admin/leads/${id}/payments`, { method:'POST', body: JSON.stringify({ kind: $('pk' + id).value, amount: $('pa' + id).value, mpesa_ref: $('pr' + id).value }) }); await load(); toast('Payment recorded'); } catch (err) { alert(err.message); } });
+  if ($('addI')) $('addI').onclick = async () => { try { await api('/api/admin/investors', { method:'POST', body: JSON.stringify({ label: $('il').value }) }); await load(); toast('Link created'); } catch (err) { $('iErr').textContent = err.message; } };
+  on('[data-copy]', 'click', e => { e.preventDefault(); navigator.clipboard.writeText(e.target.dataset.copy).then(() => toast('Link copied')); });
+  on('[data-ioff]', 'click', async e => { e.preventDefault(); await api('/api/admin/investors/' + e.target.dataset.ioff, { method:'PATCH', body: JSON.stringify({ active: e.target.dataset.active === '1' }) }); await load(); });
+  on('[data-inew]', 'click', async e => { e.preventDefault(); if (!confirm('The old link will stop working. Continue?')) return; await api('/api/admin/investors/' + e.target.dataset.inew, { method:'PATCH', body: JSON.stringify({ newToken: true }) }); await load(); toast('New link made'); });
   if ($('addP')) $('addP').onclick = async () => { try { await api('/api/admin/partners', { method:'POST', body: JSON.stringify({ name: $('pn').value, code: $('pc').value, phone: $('pph').value, rate: +$('prate').value / 100 }) }); await load(); toast('Partner added'); } catch (err) { $('pErr').textContent = err.message; } };
   on('[data-pause]', 'click', async e => { e.preventDefault(); await api('/api/admin/partners/' + e.target.dataset.pause, { method:'PATCH', body: JSON.stringify({ active: e.target.dataset.active === '1' }) }); await load(); });
   on('[data-newtoken]', 'click', async e => { e.preventDefault(); if (!confirm('The old dashboard link will stop working. Continue?')) return; await api('/api/admin/partners/' + e.target.dataset.newtoken, { method:'PATCH', body: JSON.stringify({ newToken: true }) }); await load(); toast('New link made'); });

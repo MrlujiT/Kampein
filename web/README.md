@@ -4,9 +4,10 @@ What runs at kampein.njautheinvestmentsconsultant.workers.dev today:
 
 | Path | What it is |
 |---|---|
-| `/` | Landing page with the "Reserve your campaign" form |
+| `/` | Landing page: the election market, the product, prices and the "Reserve your campaign" form |
 | `/r/<code>` | A partner's QR link: counts the scan, credits sign-ups to that partner, opens the landing page |
 | `/p/<token>` | A partner's private dashboard: scans, sign-ups, clients and commission |
+| `/i/<token>` | The private investor dashboard. Never linked from the site, hidden from search engines; links are made, tracked and switched off in `/admin` → Investors. The page itself lives in `web/investor.html`, bundled into the worker, so it is not a public file |
 | `/admin` | Your dashboard: every sign-up, call and WhatsApp buttons, status, notes, M-Pesa payments, partners and their QR codes |
 | `/demo/` | The browser demo (sample data, no database) |
 
