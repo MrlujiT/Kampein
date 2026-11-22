@@ -51,7 +51,7 @@
   .stat span { font-size:13px; color:var(--muted); }
   @media (max-width:640px) { .stats .wrap { grid-template-columns:1fr 1fr; } .stat:nth-child(2) { border-right:0; } .stat:nth-child(-n+2) { border-bottom:1px solid var(--line); } }
 
-  section { padding:64px 0; }
+  section { padding:64px 0; scroll-margin-top:60px; }
   @media (max-width:640px) { section { padding:44px 0; } }
   h2 { font-size:clamp(26px, 4vw, 38px); letter-spacing:-1px; line-height:1.15; margin:0 0 12px; }
   .sub { color:var(--muted); font-size:18px; max-width:700px; margin:0 0 36px; }
@@ -109,6 +109,41 @@
     .price td:first-child { font-size:18px; color:var(--green); } .price td:first-child::before { content:''; }
   }
 
+  .plans { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; align-items:stretch; }
+  @media (max-width:980px) { .plans { grid-template-columns:1fr 1fr; } }
+  @media (max-width:560px) { .plans { grid-template-columns:1fr; } }
+  .plan { background:#fff; border:1.5px solid var(--line); border-radius:16px; padding:22px 20px; display:flex; flex-direction:column; position:relative; }
+  .plan.hot { border-color:var(--green); box-shadow:0 14px 34px rgba(11,61,42,.14); }
+  .plan .flag { position:absolute; top:-12px; left:20px; background:var(--gold); color:#1d1500; font-size:12px; font-weight:800; padding:3px 10px; border-radius:20px; }
+  .plan h3 { margin:0; font-size:20px; color:var(--green); }
+  .plan .for { font-size:13px; color:var(--muted); margin:2px 0 14px; }
+  .plan .mo { font-size:34px; font-weight:800; letter-spacing:-1px; line-height:1; }
+  .plan .mo small { display:block; margin-top:6px; font-size:14px; font-weight:500; color:var(--muted); letter-spacing:0; }
+  .plan dl { margin:14px 0 0; font-size:14px; }
+  .plan dl div { display:flex; justify-content:space-between; padding:7px 0; border-top:1px solid var(--line); }
+  .plan dt { color:var(--muted); } .plan dd { margin:0; font-weight:600; }
+  .share { margin-top:auto; padding-top:16px; }
+  .share .bar { height:10px; background:#eef3f0; border-radius:5px; overflow:hidden; margin:6px 0 6px; }
+  .share .bar i { display:block; height:100%; background:linear-gradient(90deg, var(--leaf), var(--gold)); border-radius:5px; }
+  .share p { margin:0; font-size:13px; color:var(--muted); }
+  .share b { color:var(--ink); }
+  .extras { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px; }
+  @media (max-width:760px) { .extras { grid-template-columns:1fr; } }
+  .extras div { background:var(--mint); border-radius:12px; padding:16px 18px; font-size:15px; }
+  .extras b { display:block; color:var(--green); margin-bottom:2px; }
+  .support { display:grid; grid-template-columns:1fr 1fr; gap:40px; align-items:start; }
+  @media (max-width:860px) { .support { grid-template-columns:1fr; gap:20px; } }
+  .promise { display:grid; gap:12px; }
+  .promise div { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .promise b { display:block; margin-bottom:2px; }
+  .promise span { color:var(--muted); font-size:15px; }
+  details { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 18px; margin-bottom:10px; }
+  summary { font-weight:700; cursor:pointer; list-style:none; position:relative; padding-right:24px; }
+  summary::-webkit-details-marker { display:none; }
+  summary::after { content:'+'; position:absolute; right:0; top:-2px; font-size:20px; color:var(--leaf); }
+  details[open] summary::after { content:'–'; }
+  details p { margin:10px 0 0; color:var(--muted); }
+  .wa { position:fixed; right:18px; bottom:18px; z-index:20; background:#1fa855; color:#fff; border-radius:30px; padding:12px 18px; font-weight:700; text-decoration:none; box-shadow:0 8px 24px rgba(0,0,0,.25); display:flex; gap:8px; align-items:center; }
   .reserve { background:var(--mint); }
   .reserve .wrap { display:grid; grid-template-columns:1fr 1fr; gap:44px; align-items:start; }
   @media (max-width:900px) { .reserve .wrap { grid-template-columns:1fr; gap:24px; } }
@@ -140,7 +175,7 @@
 <body>
 <header class="top"><div class="wrap">
   <a class="logo" href="/">Kamp<span>ei</span>n</a>
-  <nav><a href="#market">The market</a><a href="#how">How it works</a><a href="#pricing">Pricing</a><a href="/demo/">Live demo</a><a class="cta" href="#reserve">Reserve</a></nav>
+  <nav><a href="#market">The market</a><a href="#how">How it works</a><a href="#pricing">Pricing</a><a href="#support">Support</a><a href="/demo/">Live demo</a><a class="cta" href="#reserve">Reserve</a></nav>
 </div></header>
 
 <div class="hero"><div class="wrap">
@@ -237,17 +272,59 @@
 
 <section id="pricing"><div class="wrap">
   <h2>Clear prices for the 2027 cycle</h2>
-  <p class="sub">A one-off setup fee, a monthly fee while you campaign, and an optional election-day package. All amounts in KES.</p>
-  <table class="price">
-    <thead><tr><th>Seat</th><th>Setup</th><th>Monthly</th><th>Election day</th></tr></thead>
-    <tbody>
-      <tr><td>MCA</td><td data-l="Setup">50,000</td><td data-l="Monthly">15,000</td><td data-l="Election day">50,000</td></tr>
-      <tr><td>MP</td><td data-l="Setup">150,000</td><td data-l="Monthly">40,000</td><td data-l="Election day">200,000</td></tr>
-      <tr><td>Woman Rep / Senator</td><td data-l="Setup">300,000</td><td data-l="Monthly">80,000</td><td data-l="Election day">500,000</td></tr>
-      <tr><td>Governor</td><td data-l="Setup">600,000</td><td data-l="Monthly">150,000</td><td data-l="Election day">1,000,000</td></tr>
-    </tbody>
-  </table>
-  <p class="fine">Setup is paid before onboarding and monthly fees in advance, by M-Pesa.</p>
+  <p class="sub">A small share of what campaigns already spend, for a system that tracks where the rest goes. All amounts in KES, paid by M-Pesa.</p>
+  <div class="plans">
+    <div class="plan">
+      <h3>MCA</h3><div class="for">Your ward</div>
+      <div class="mo">15,000<small> KES a month</small></div>
+      <dl><div><dt>One-off setup</dt><dd>50,000</dd></div><div><dt>Election-day package</dt><dd>50,000</dd></div><div><dt>Full cycle, Jan to polling day</dt><dd>205,000</dd></div></dl>
+      <div class="share"><div class="bar"><i style="width:66%"></i></div><p>About <b>6.6%</b> of what an average MCA campaign spends (KES 3.1M).</p></div>
+    </div>
+    <div class="plan">
+      <h3>MP</h3><div class="for">Your constituency</div>
+      <div class="mo">40,000<small> KES a month</small></div>
+      <dl><div><dt>One-off setup</dt><dd>150,000</dd></div><div><dt>Election-day package</dt><dd>200,000</dd></div><div><dt>Full cycle, Jan to polling day</dt><dd>630,000</dd></div></dl>
+      <div class="share"><div class="bar"><i style="width:35%"></i></div><p>About <b>3.5%</b> of what an average MP campaign spends (KES 18.2M).</p></div>
+    </div>
+    <div class="plan">
+      <h3>Woman Rep or Senator</h3><div class="for">Your county</div>
+      <div class="mo">80,000<small> KES a month</small></div>
+      <dl><div><dt>One-off setup</dt><dd>300,000</dd></div><div><dt>Election-day package</dt><dd>500,000</dd></div><div><dt>Full cycle, Jan to polling day</dt><dd>1,360,000</dd></div></dl>
+      <div class="share"><div class="bar"><i style="width:60%"></i></div><p>About <b>6.0%</b> of an average Woman Rep campaign (KES 22.8M) and <b>3.8%</b> of a Senate campaign (KES 35.5M).</p></div>
+    </div>
+    <div class="plan">
+      <h3>Governor</h3><div class="for">Your county</div>
+      <div class="mo">150,000<small> KES a month</small></div>
+      <dl><div><dt>One-off setup</dt><dd>600,000</dd></div><div><dt>Election-day package</dt><dd>1,000,000</dd></div><div><dt>Full cycle, Jan to polling day</dt><dd>2,650,000</dd></div></dl>
+      <div class="share"><div class="bar"><i style="width:66%"></i></div><p>About <b>6.6%</b> of what an average Governor campaign spends (KES 40.0M).</p></div>
+    </div>
+  </div>
+  <div class="extras">
+    <div><b>In-person team training</b>We train your coordinators and agents at your campaign office, priced by location.</div>
+    <div><b>How you pay</b>Setup before onboarding, monthly fees in advance, and the election-day package by a fixed date before polling day.</div>
+  </div>
+  <p class="fine">Average spend per seat: The Cost of Politics in Kenya (WFD and NIMD, 2021); Governor: Transparency International Kenya (2022). Full cycle assumes January to August 2027 plus the election-day package.</p>
+</div></section>
+
+<section id="support"><div class="wrap support">
+  <div>
+    <h2>We walk with you the whole way</h2>
+    <p class="sub">Kampein is not software you buy and figure out alone. Every campaign gets people behind it, from setup to the last results form.</p>
+    <div class="promise">
+      <div><b>A named support champion</b><span>One person at Kampein who knows your campaign, for you and your designated contacts.</span></div>
+      <div><b>Support every day, around the clock when it matters</b><span>Daily on WhatsApp and phone, and round the clock in the final weeks and on polling day.</span></div>
+      <div><b>Setup done with you</b><span>We load your area's IEBC data, set your targets with you and get your first coordinators running.</span></div>
+    </div>
+  </div>
+  <div>
+    <h2 style="font-size:24px">Questions campaigns ask</h2>
+    <details><summary>Is Kampein linked to any party?</summary><p>No. Kampein is non-partisan and independent. Aspirants from any party, and independents, use it on the same terms.</p></details>
+    <details><summary>Who owns my campaign's data?</summary><p>You do. Each campaign's data is sealed off from every other campaign, and only the people you add can see it, each limited to their own area.</p></details>
+    <details><summary>Do my agents need smartphones or an app?</summary><p>No app to install. Agents report through Telegram, which works on cheap phones and weak networks. Coordinators can also use any phone browser.</p></details>
+    <details><summary>Can Kampein pay my agents or voters?</summary><p>Kampein records payments to registered team members and vendors only, each with its M-Pesa reference. There is no way to record a payment to a voter, and there never will be.</p></details>
+    <details><summary>Does Kampein announce results?</summary><p>No. On polling day Kampein builds your campaign's internal tally from the results forms your agents photograph. IEBC alone declares results.</p></details>
+    <details><summary>What if I lose the primary?</summary><p>You stop paying after the primaries. There are no fees for the months you don't use.</p></details>
+  </div>
 </div></section>
 
 <section class="reserve" id="reserve"><div class="wrap">
@@ -292,6 +369,11 @@
   <div>Non-partisan and independent. Not affiliated with IEBC or any political party. Voter data: IEBC register. <a href="/demo/">Live demo</a></div>
 </div></footer>
 
+<a class="wa" id="wa" hidden target="_blank" rel="noopener">💬 Talk to us</a>
+<script>
+const SUPPORT_WHATSAPP = ''; // e.g. '254712345678' — the button appears once this is set
+if (SUPPORT_WHATSAPP) { const w = document.getElementById('wa'); w.href = 'https://wa.me/' + SUPPORT_WHATSAPP + '?text=' + encodeURIComponent('Hi Kampein, I would like to know more about running my campaign on Kampein.'); w.hidden = false; }
+</script>
 <script src="/assets/places.js"></script>
 <script>
 // Grow the market bars when they scroll into view
